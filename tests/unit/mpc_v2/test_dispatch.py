@@ -249,3 +249,36 @@ def test_daqp_import_failure_warns_once_and_holds(monkeypatch, caplog) -> None:
     assert real_trvs["climate.x"].calibration_balance is None
     warnings = [r for r in caplog.records if "MPC v2 unavailable" in r.getMessage()]
     assert len(warnings) == 1
+
+
+def test_single_valve_learning_receives_live_report_metadata():
+    from datetime import UTC, datetime
+
+    from custom_components.better_thermostat.utils.telemetry import (
+        collect_mpc_v2_debug_attrs,
+    )
+
+    eid = "climate.single"
+    trv = _trv_info(eid, current_temp=20.0, supports_valve=True)
+    trv.advanced["mpc_v2_learn_response"] = True
+    trv.last_valve_percent = 0
+    bt = _make_bt(real_trvs={eid: trv})
+    bt.sensor_entity_id = "sensor.room"
+    bt.weather_entity = "weather.home"
+    now = datetime.now(UTC)
+    states = {
+        eid: SimpleNamespace(state="heat"),
+        "sensor.room": SimpleNamespace(state="19.5", last_reported=now),
+        "weather.home": SimpleNamespace(
+            state="cloudy",
+            last_updated=now,
+            attributes={"temperature": 8, "temperature_unit": "°C"},
+        ),
+    }
+    bt.hass = SimpleNamespace(states=states)
+    result, supported = _compute_mpc_v2_balance(bt, eid)
+    assert result is not None and supported
+    assert result.diagnostics.response_curve["status"] == "settling"
+    attrs = collect_mpc_v2_debug_attrs(bt)
+    assert attrs["mpc_v2_response_status"] == "settling"
+    assert attrs["mpc_v2_response_curve"]["independent_holds"] == [0] * 21

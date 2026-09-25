@@ -40,12 +40,14 @@
           "valve_maintenance": "If your thermostat has no own maintenance mode, you can use this one",
           "calibration": "Calibration type",
           "calibration_mode": "Calibration mode",
-          "no_off_system_mode": "If your TRV doesn't support the 'off' mode, enable this to use target temperature 5°C instead"
+          "no_off_system_mode": "If your TRV doesn't support the 'off' mode, enable this to use target temperature 5°C instead",
+          "mpc_v2_learn_response": "MPC V2: learn valve heating response (experimental)"
         },
         "data_description": {
           "protect_overheating": "Some TRVs don't close the valve completely when the temperature is reached. Or the radiator has a lot of rest heat. This can cause overheating. This option can prevent this.",
           "calibration_mode": "How the calibration is calculated\n***Normal***: Uses your external temperature sensor to correct the TRV's internal sensor. Simple and reliable for most setups.\n***Aggressive***: Similar to Normal, but pushes the TRV harder to reach temperature faster. Good if your room heats slowly.\n***AI Time Based***: Learns your room's heating patterns over time and adjusts automatically. Balances comfort and efficiency.\n***MPC Predictive***: Advanced algorithm that predicts temperature changes and optimizes valve position. Best for stable, efficient heating with minimal overshooting. Learns your room's thermal behavior.\n***PID Controller***: Classic control method that responds to temperature errors. Good for systems with varying heating power or external disturbances.\n***TPI Controller***: Calculates heating duty cycles based on temperature difference. Simple and effective for consistent heating patterns.",
-          "calibration": "How the calibration is applied on the TRV\n***Target Temperature Based***: Apply the calibration to the target temperature.\n***Offset Based***: Apply the calibration to the temperature offset."
+          "calibration": "How the calibration is applied on the TRV\n***Target Temperature Based***: Apply the calibration to the target temperature.\n***Offset Based***: Apply the calibration to the temperature offset.",
+          "mpc_v2_learn_response": "Single radiator with direct valve control only. Learns from settled, fresh reports without forced heating experiments. Your maximum opening remains enforced. Unobserved valve ranges remain uncertain."
         }
       },
       "confirm": {
@@ -110,12 +112,14 @@
           "valve_maintenance": "If your thermostat has no own maintenance mode, you can use this one",
           "calibration": "Calibration type",
           "calibration_mode": "Calibration mode",
-          "no_off_system_mode": "If your TRV doesn't support the 'off' mode, enable this to use target temperature 5°C instead"
+          "no_off_system_mode": "If your TRV doesn't support the 'off' mode, enable this to use target temperature 5°C instead",
+          "mpc_v2_learn_response": "MPC V2: learn valve heating response (experimental)"
         },
         "data_description": {
           "protect_overheating": "Some TRVs don't close the valve completely when the temperature is reached. Or the radiator has a lot of rest heat. This can cause overheating. This option can prevent this.",
           "calibration_mode": "How the calibration is calculated\n***Normal***: Uses your external temperature sensor to correct the TRV's internal sensor. Simple and reliable for most setups.\n***Aggressive***: Similar to Normal, but pushes the TRV harder to reach temperature faster. Good if your room heats slowly.\n***AI Time Based***: Learns your room's heating patterns over time and adjusts automatically. Balances comfort and efficiency.\n***MPC Predictive***: Advanced algorithm that predicts temperature changes and optimizes valve position. Best for stable, efficient heating with minimal overshooting. Learns your room's thermal behavior.\n***PID Controller***: Classic control method that responds to temperature errors. Good for systems with varying heating power or external disturbances.\n***TPI Controller***: Calculates heating duty cycles based on temperature difference. Simple and effective for consistent heating patterns.",
-          "calibration": "How the calibration is applied on the TRV\n***Target Temperature Based***: Apply the calibration to the target temperature.\n***Offset Based***: Apply the calibration to the temperature offset."
+          "calibration": "How the calibration is applied on the TRV\n***Target Temperature Based***: Apply the calibration to the target temperature.\n***Offset Based***: Apply the calibration to the temperature offset.",
+          "mpc_v2_learn_response": "Single radiator with direct valve control only. Learns from settled, fresh reports without forced heating experiments. Your maximum opening remains enforced. Unobserved valve ranges remain uncertain."
         }
       }
     },

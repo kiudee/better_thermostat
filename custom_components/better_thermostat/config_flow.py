@@ -41,6 +41,7 @@ from .utils.const import (
     CONF_HUMIDITY,
     CONF_MIN_COOLER_RESEND_INTERVAL,
     CONF_MODEL,
+    CONF_MPC_V2_LEARN_RESPONSE,
     CONF_MPC_V2_PLANT_PRESET,
     CONF_NO_SYSTEM_MODE_OFF,
     CONF_OFF_TEMPERATURE,
@@ -421,6 +422,13 @@ def _build_advanced_fields(
             default=get_value(CONF_MPC_V2_PLANT_PRESET, MpcV2PlantPreset.AUTO),
         )
     ] = MPC_V2_PLANT_PRESET_SELECTOR
+    if support_valve:
+        ordered[
+            vol.Optional(
+                CONF_MPC_V2_LEARN_RESPONSE,
+                default=get_bool(CONF_MPC_V2_LEARN_RESPONSE, False),
+            )
+        ] = bool
 
     ordered[
         vol.Optional(

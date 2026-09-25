@@ -75,6 +75,7 @@ class MpcV2StateData:
     created_ts: float = 0.0
     outdoor_fallback_logged: bool = False
     snapshot: dict[str, Any] = field(default_factory=dict)
+    response: dict[str, Any] = field(default_factory=dict)
 
 
 _LOGGER = logging.getLogger(__name__)
@@ -213,6 +214,9 @@ def deserialize_mpc_v2(raw: dict[str, Any]) -> MpcV2StateData:
     snapshot = raw.get("snapshot")
     if isinstance(snapshot, Mapping):
         state.snapshot = dict(snapshot)
+    response = raw.get("response")
+    if isinstance(response, Mapping):
+        state.response = dict(response)
     return state
 
 

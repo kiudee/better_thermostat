@@ -1,0 +1,52 @@
+# Requires the Plotly graph card. Replace climate.my_room in all traces.
+type: custom:plotly-graph
+title: MPC response · temperature, retained heat and valve command
+hours_to_show: 24
+refresh_interval: 60
+height: 650
+entities:
+  - entity: climate.my_room
+    attribute: current_temperature
+    name: Room temperature
+    yaxis: y
+  - entity: climate.my_room
+    attribute: temperature
+    name: Target
+    yaxis: y
+  - entity: climate.my_room
+    attribute: mpc_v2_heat_rate_hat_K_min
+    name: Estimated retained heat · K/min
+    yaxis: y2
+    connectgaps: false
+  - entity: climate.my_room
+    attribute: mpc_v2_group_valve_pct
+    name: Valve command · %
+    yaxis: y3
+    line:
+      shape: hv
+layout:
+  showlegend: true
+  legend:
+    orientation: h
+    y: 1.15
+  xaxis:
+    anchor: y3
+  yaxis:
+    title: Temperature · °C
+    domain: [0.58, 1]
+    overlaying: false
+    visible: true
+    anchor: x
+  yaxis2:
+    title: Heat · K/min
+    domain: [0.3, 0.5]
+    overlaying: false
+    visible: true
+    anchor: x
+  yaxis3:
+    title: Valve · %
+    domain: [0, 0.22]
+    range: [0, 100]
+    overlaying: false
+    visible: true
+    anchor: x

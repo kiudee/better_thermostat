@@ -357,7 +357,11 @@ async def override_set_valve(self, entity_id, percent: int):
         # Only apply workaround when closing further, and only when the motor
         # was not already driven open by a bump whose write is still due.
         if target_pct < last_pct and not bump_pending:
-            bump_pct = min(100, int(last_pct) + _TRVZB_CLOSE_BUMP_OPEN_DELTA_PCT)
+            bump_pct = min(
+                100,
+                int(trv_state.valve_max_opening),
+                int(last_pct) + _TRVZB_CLOSE_BUMP_OPEN_DELTA_PCT,
+            )
 
             # If we can't "bump open", fall back to direct set.
             ok_bump = await maybe_set_sonoff_valve_percent(self, entity_id, bump_pct)

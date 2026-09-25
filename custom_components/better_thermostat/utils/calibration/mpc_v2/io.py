@@ -10,6 +10,7 @@ deliberately HA-free so the controller core can be exercised in isolation.
 from __future__ import annotations
 
 from dataclasses import dataclass
+from typing import Any
 
 
 @dataclass
@@ -26,6 +27,11 @@ class MpcV2Input:
     max_opening_pct: float | None = None
     bt_name: str | None = None
     entity_id: str | None = None
+    room_reported_at: float | None = None
+    outdoor_reported_at: float | None = None
+    applied_valve_pct: float | None = None
+    learning_valid: bool = True
+    response_source: str | None = None
 
 
 @dataclass
@@ -33,10 +39,12 @@ class MpcV2Diagnostics:
     """Per-cycle controller diagnostics, surfaced as entity attributes."""
 
     T_room_hat: float
-    T_rad_hat: float
+    T_rad_hat: float | None
     D_hat_K_per_min: float
     tau_room_min: float
     coupling_rad_room: float
+    heat_rate_hat_K_min: float | None = None
+    response_curve: dict[str, Any] | None = None
 
 
 @dataclass

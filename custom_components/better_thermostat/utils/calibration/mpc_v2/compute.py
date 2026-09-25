@@ -2,13 +2,17 @@
 
 from __future__ import annotations
 
+from dataclasses import replace
 import logging
 import math
 from time import time
 
+import numpy as np
+
 from .controller import MpcV2Controller
 from .io import MpcV2Input, MpcV2Output
 from .params import MpcV2Params
+from .response import ResponseObservation
 from .state import MpcV2State, _plant_signature_of, plant_signature_differs
 
 _LOGGER = logging.getLogger(__name__)
@@ -61,6 +65,7 @@ def compute_mpc_v2(
         or not inp.heating_allowed
         or inp.window_open
     ):
+        state.response.interrupt(now, "heating_interrupted")
         return None, state
 
     # Reject non-finite sensor inputs. Without this guard a NaN propagates
@@ -69,6 +74,7 @@ def compute_mpc_v2(
     if not _all_finite(
         inp.current_temp_C, inp.target_temp_C, inp.outdoor_temp_C, inp.trv_temp_C
     ):
+        state.response.interrupt(now, "invalid_input")
         _LOGGER.warning(
             "better_thermostat %s: MPC v2 (%s) non-finite input "
             "(current=%s target=%s outdoor=%s trv=%s) — holding last command",
@@ -80,6 +86,49 @@ def compute_mpc_v2(
             inp.trv_temp_C,
         )
         return None, state
+
+    cap = max(
+        0.0,
+        min(100.0, inp.max_opening_pct if inp.max_opening_pct is not None else 100.0),
+    )
+    curve = None
+    if params.learn_valve_response:
+        if inp.response_source is not None:
+            state.response.bind_source(inp.response_source, now)
+        valid = (
+            inp.learning_valid
+            and inp.outdoor_temp_C is not None
+            and inp.room_reported_at is not None
+            and inp.outdoor_reported_at is not None
+            and 0 <= now - inp.outdoor_reported_at <= 90 * 60
+            and inp.applied_valve_pct is not None
+        )
+        state.response.observe(
+            ResponseObservation(
+                now=now,
+                reported_at=inp.room_reported_at or 0,
+                temperature=inp.current_temp_C,
+                outdoor=inp.outdoor_temp_C if inp.outdoor_temp_C is not None else 10,
+                valve_pct=inp.applied_valve_pct
+                if inp.applied_valve_pct is not None
+                else 0,
+                valid=valid,
+            )
+        )
+        learned = state.response.control_curve(prior_heat=0.05)
+        if learned is not None:
+            curve, loss = learned
+            params = replace(params, response_heat_max=curve[-1], response_loss=loss)
+    cap_u = (
+        cap / 100
+        if curve is None
+        else float(np.interp(cap, state.response.GRID, curve)) / curve[-1]
+    )
+    params = replace(
+        params,
+        qp=replace(params.qp, u_max=cap_u),
+        governor=replace(params.governor, u_max=cap_u),
+    )
 
     new_signature = _plant_signature_of(params)
     if (
@@ -98,6 +147,26 @@ def compute_mpc_v2(
     if state.controller is None:
         state.controller = MpcV2Controller(params)
         state.plant_signature = new_signature
+
+    if params.response_heat_max is not None and params.response_loss is not None:
+        state.controller.update_heat_response(
+            params.response_heat_max, params.response_loss
+        )
+    state.controller.optimiser.params.u_max = cap_u
+    state.controller.governor.params.u_max = cap_u
+    # Use the last successfully dispatched command, not a short adapter bump.
+    applied = (
+        inp.applied_valve_pct
+        if inp.applied_valve_pct is not None
+        else state.last_percent
+    )
+    if applied is not None:
+        applied_u = (
+            applied / 100
+            if curve is None
+            else float(np.interp(applied, state.response.GRID, curve)) / curve[-1]
+        )
+        state.controller.set_applied_u(min(cap_u, applied_u))
 
     if inp.outdoor_temp_C is None:
         T_outdoor = OUTDOOR_TEMP_FALLBACK_C
@@ -123,6 +192,18 @@ def compute_mpc_v2(
     )
 
     percent_int = round(max(0.0, min(1.0, u)) * 100.0)
+    if curve is not None:
+        # Select the smallest opening on plateaus, avoiding np.interp's last
+        # duplicate behavior which would otherwise choose 100% at saturation.
+        unique = [(curve[0], 0)]
+        for pct, heat in zip(state.response.GRID[1:], curve[1:]):
+            if heat > unique[-1][0] + 1e-9:
+                unique.append((heat, pct))
+        percent_int = round(
+            float(
+                np.interp(u * curve[-1], [p[0] for p in unique], [p[1] for p in unique])
+            )
+        )
     if inp.max_opening_pct is not None:
         # The cap is a percent by contract; clamp it into 0..100 here so an
         # out-of-range value from a caller cannot widen or invert the limit.
@@ -131,7 +212,16 @@ def compute_mpc_v2(
     # Feed the actually-applied (possibly capped) fraction back so the observer
     # and rate limiter track the real valve input, not the uncapped request.
     if state.controller is not None:
-        state.controller.set_applied_u(percent_int / 100.0)
+        actual_u = (
+            percent_int / 100
+            if curve is None
+            else float(np.interp(percent_int, state.response.GRID, curve)) / curve[-1]
+        )
+        state.controller.set_applied_u(actual_u)
+
+    if params.learn_valve_response:
+        diag.response_curve = state.response.diagnostics()
+        diag.response_curve["control_active"] = curve is not None
 
     state.last_percent = float(percent_int)
     state.last_compute_ts = now
@@ -139,7 +229,7 @@ def compute_mpc_v2(
     if _LOGGER.isEnabledFor(logging.DEBUG):
         _LOGGER.debug(
             "better_thermostat %s: MPC v2 (%s) target=%.2f current=%.2f trv=%s "
-            "outdoor=%s -> valve=%d%% (T_rad_hat=%.2f D_hat=%.4f tau_room=%.0f) key=%s",
+            "outdoor=%s -> valve=%d%% (T_rad_hat=%s D_hat=%.4f tau_room=%.0f) key=%s",
             inp.bt_name or "BT",
             inp.entity_id or inp.key,
             inp.target_temp_C,
