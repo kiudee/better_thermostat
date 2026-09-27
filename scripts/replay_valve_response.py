@@ -51,7 +51,6 @@ def replay(history, *, climate, room, valve, window, weather):
             if ws["attributes"].get("temperature_unit") == "°F":
                 outdoor = (outdoor - 32) * 5 / 9
             opening = float(states[valve][1]["state"])
-            command = float(c["mpc_v2_group_valve_pct"])
             methods = c.get("valve_method", {})
             known_source = isinstance(methods, dict) and len(methods) == 1
             if known_source:
@@ -68,7 +67,6 @@ def replay(history, *, climate, room, valve, window, weather):
                 and not c.get("door_open", False)
                 and not c.get("unavailable_sensors", [])
                 and t - wt <= 5400
-                and abs(opening - command) <= 1
             )
             learner.observe(ResponseObservation(t, rt, temp, outdoor, opening, valid))
         except ValueError, KeyError, TypeError:
@@ -101,9 +99,7 @@ if __name__ == "__main__":
     print(
         json.dumps(
             {
-                "accepted_independent_holds": sum(
-                    result["diagnostics"]["independent_holds"]
-                ),
+                "accepted_episodes": result["diagnostics"]["accepted_episodes"],
                 "status_counts": result["status_counts"],
             },
             indent=2,

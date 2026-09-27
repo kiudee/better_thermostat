@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import logging
 import math
-from time import time
 
 from homeassistant.components.climate.const import HVACAction, HVACMode
 
@@ -464,32 +463,11 @@ def _compute_mpc_v2_balance(self, entity_id: str):
 
     try:
         mpc_v2_state = self.state_mgr.get_mpc_v2_live(mpc_key, v2_params)
-        room_state = None
-        outdoor_state = None
-        valve_state = None
-        contacts_settled = True
-        if v2_params.learn_valve_response and self.hass is not None:
-            room_state = self.hass.states.get(getattr(self, "sensor_entity_id", ""))
-            outdoor_state = self.hass.states.get(
-                self.outdoor_sensor or self.weather_entity or ""
-            )
-            valve_state = self.hass.states.get(entity_id)
-            for configured in (
-                getattr(self, "window_id", None),
-                getattr(self, "door_id", None),
-            ):
-                for contact in (
-                    configured if isinstance(configured, list) else [configured]
-                ):
-                    if not contact:
-                        continue
-                    contact_state = self.hass.states.get(contact)
-                    if (
-                        contact_state is None
-                        or contact_state.state != "off"
-                        or time() - contact_state.last_changed.timestamp() < 45 * 60
-                    ):
-                        contacts_settled = False
+        if v2_params.learn_valve_response:
+            from .utils.response_learning import attach_response_collection
+
+            mpc_v2_state.response = attach_response_collection(self, entity_id)
+            mpc_v2_state.response_shared = True
         mpc_output, mpc_v2_state = compute_mpc_v2(
             MpcV2Input(
                 key=mpc_key,
@@ -502,29 +480,7 @@ def _compute_mpc_v2_balance(self, entity_id: str):
                 entity_id=entity_id,
                 outdoor_temp_C=_get_current_outdoor_temp(self),
                 max_opening_pct=max_opening_pct,
-                room_reported_at=room_state.last_reported.timestamp()
-                if room_state is not None
-                else None,
-                outdoor_reported_at=outdoor_state.last_updated.timestamp()
-                if outdoor_state is not None
-                else None,
-                applied_valve_pct=trv_state.last_valve_percent,
-                learning_valid=(
-                    not getattr(self, "in_maintenance", False)
-                    and contacts_settled
-                    and not getattr(self, "degraded_mode", False)
-                    and room_state is not None
-                    and room_state.state not in ("unknown", "unavailable")
-                    and valve_state is not None
-                    and valve_state.state not in ("unknown", "unavailable")
-                ),
-                response_source="|".join(
-                    (
-                        str(getattr(self, "sensor_entity_id", "")),
-                        str(self.outdoor_sensor or self.weather_entity),
-                        entity_id,
-                    )
-                ),
+                response_managed=mpc_v2_state.response_shared,
             ),
             v2_params,
             state=mpc_v2_state,

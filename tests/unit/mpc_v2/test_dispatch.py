@@ -251,12 +251,10 @@ def test_daqp_import_failure_warns_once_and_holds(monkeypatch, caplog) -> None:
     assert len(warnings) == 1
 
 
-def test_single_valve_learning_receives_live_report_metadata():
-    from datetime import UTC, datetime
+async def test_single_valve_learning_receives_raw_reports_across_targets(hass):
+    from unittest.mock import Mock
 
-    from custom_components.better_thermostat.utils.telemetry import (
-        collect_mpc_v2_debug_attrs,
-    )
+    from custom_components.better_thermostat.utils.state_manager import StateManager
 
     eid = "climate.single"
     trv = _trv_info(eid, current_temp=20.0, supports_valve=True)
@@ -265,20 +263,34 @@ def test_single_valve_learning_receives_live_report_metadata():
     bt = _make_bt(real_trvs={eid: trv})
     bt.sensor_entity_id = "sensor.room"
     bt.weather_entity = "weather.home"
-    now = datetime.now(UTC)
-    states = {
-        eid: SimpleNamespace(state="heat"),
-        "sensor.room": SimpleNamespace(state="19.5", last_reported=now),
-        "weather.home": SimpleNamespace(
-            state="cloudy",
-            last_updated=now,
-            attributes={"temperature": 8, "temperature_unit": "°C"},
-        ),
-    }
-    bt.hass = SimpleNamespace(states=states)
+    bt.hass = hass
+    bt.state_mgr = StateManager(hass, "response_test")
+    removers = []
+    bt.async_on_remove = removers.append
+    bt.schedule_save_state = Mock()
+    hass.states.async_set(eid, "heat")
+    hass.states.async_set("sensor.room", "19.5", {"unit_of_measurement": "°C"})
+    hass.states.async_set(
+        "weather.home", "cloudy", {"temperature": 8, "temperature_unit": "°C"}
+    )
     result, supported = _compute_mpc_v2_balance(bt, eid)
     assert result is not None and supported
-    assert result.diagnostics.response_curve["status"] == "settling"
-    attrs = collect_mpc_v2_debug_attrs(bt)
-    assert attrs["mpc_v2_response_status"] == "settling"
-    assert attrs["mpc_v2_response_curve"]["independent_holds"] == [0] * 21
+    learner = next(iter(bt.state_mgr._response_live.values()))
+    hass.states.async_set("sensor.room", "19.8", {"unit_of_measurement": "°C"})
+    await hass.async_block_till_done()
+    assert learner.reports[-1][1] == 19.8
+    assert bt.cur_temp == 19.5  # The learner bypasses BT's delayed acceptance.
+    bt.bt_target_temp = 19
+    _compute_mpc_v2_balance(bt, eid)
+    assert len(bt.state_mgr._mpc_v2_live) == 2
+    assert all(s.response is learner for s in bt.state_mgr._mpc_v2_live.values())
+    before = len(learner.reports)
+    hass.states.async_set("sensor.room", "19.8", {"unit_of_measurement": "°C"})
+    await hass.async_block_till_done()
+    assert len(learner.reports) == before + 1  # Unchanged-value heartbeat.
+    hass.states.async_set("sensor.room", "unavailable")
+    await hass.async_block_till_done()
+    assert not learner.reports
+    assert learner.status == "sensor_unavailable"
+    for remove in removers:
+        remove()

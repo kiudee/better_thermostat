@@ -92,7 +92,7 @@ def compute_mpc_v2(
         min(100.0, inp.max_opening_pct if inp.max_opening_pct is not None else 100.0),
     )
     curve = None
-    if params.learn_valve_response:
+    if params.learn_valve_response and not inp.response_managed:
         if inp.response_source is not None:
             state.response.bind_source(inp.response_source, now)
         valid = (

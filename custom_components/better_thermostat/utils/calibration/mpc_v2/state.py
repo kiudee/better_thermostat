@@ -31,6 +31,7 @@ class MpcV2State:
     # used to throttle the WARN to one line per controller instance.
     outdoor_fallback_logged: bool = False
     response: ValveResponseLearner = field(default_factory=ValveResponseLearner)
+    response_shared: bool = False
 
 
 def _plant_signature_of(params: MpcV2Params) -> tuple[float, ...]:

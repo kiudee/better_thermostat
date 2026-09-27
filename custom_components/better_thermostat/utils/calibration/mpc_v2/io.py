@@ -32,6 +32,7 @@ class MpcV2Input:
     applied_valve_pct: float | None = None
     learning_valid: bool = True
     response_source: str | None = None
+    response_managed: bool = False
 
 
 @dataclass

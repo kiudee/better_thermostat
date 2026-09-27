@@ -1,59 +1,105 @@
-# Experimental MPC V2 valve-response learning
+# Experimental MPC V2 response learning
 
-This opt-in extension learns **delivered room heating versus valve opening**, in K/min. It does not measure hydraulic flow or promise to identify a unique physical valve characteristic from room temperature alone.
+The response learner estimates delivered room heating versus valve command from
+irregular temperature reports. It supports event-triggered battery sensors such
+as Aqara: quiet periods do not create samples or reset learning after ten minutes.
 
-## Enable
+**This version is observation-only. Candidate curves never affect heating.**
+Existing MPC V2, configured valve limits, presets and schedules continue to control
+the radiator. No automatic probes or cap increases are performed. The output is
+room heating in K/min, not measured water flow.
 
-Use MPC V2 and direct valve control with **one radiator per Better Thermostat**. In advanced options enable **MPC V2: learn valve heating response (experimental)**. Multiple-radiator groups and target-temperature calibration keep their existing controller behavior.
+## Enable and observe
 
-The configured maximum opening remains an upper bound. You can set it to 100% to allow observations over the full range. Learning does not force heating experiments: a room that never needs high openings cannot reveal that part of the curve. With mild weather or short cycles, learning may remain inconclusive for a long time. A higher configured cap can deliver more heat before learning has enough evidence, so it is not equivalent to a pre-calibrated valve.
+Use MPC V2 with direct valve control and one physical radiator. Enable the
+advanced option **MPC V2: learn valve heating response (experimental)**. Multiple
+radiators and other calibration methods retain their existing behavior.
 
-This fork declares `daqp==0.9.1` so the optimizer is installed with the integration. Disabling response learning returns to the original MPC model; retained observations are not erased.
+The option starts collecting reports and applied command history. It does not
+activate a candidate curve. Disabling it stops collection after the normal options
+reload. Accepted evidence is retained in the entry's unified state store.
 
-## What changes in control
-
-Initially the existing MPC remains in use. After three consistent, independent settled heating holds at an opening, the response model can influence control. It models room temperature and retained radiator heating rate, plans in effective heat, and maps the chosen heat back to the smallest valve opening that delivers it. The configured cap is included in the optimizer's constraints, not just clipped afterward. The Sonoff closing workaround now also respects that cap.
-
-The curve is monotone and uses a conservative upper envelope when observations disagree. Unknown portions retain assumptions for control; diagnostics never display those assumptions as measured points. Beyond the highest supported opening, the control curve continues increasing until real observations show saturation. The radiator lag remains a 15-minute prior; it is not identified independently from sensor lag in this version.
-
-For an active response model, `mpc_v2_heat_rate_hat_K_min` replaces the fictitious radiator-temperature estimate. `mpc_v2_T_rad_hat` is omitted, because the second state is now a heating rate, not a temperature. Existing temperature and valve diagnostics remain available.
-
-## Data acceptance
-
-- Every accepted point requires a fresh timestamped room report. Repeated control calls with the same report add no evidence.
-- Commands must stay within one percentage point for at least 30 minutes before a heating measurement window starts. Off baselines require 45 minutes for retained radiator heat to decay.
-- A slope window spans at least 15 minutes, contains at least four reports and uses a robust median of pairwise slopes.
-- Gaps or report ages over ten minutes break the interval. Missing, non-finite, out-of-order, unavailable and degraded inputs cannot train it.
-- Window/heating interruptions discard unfinished evidence. Live learning waits at least 45 minutes after a contact closes. Large temperature jumps, inconsistent slopes and changing weather are rejected.
-- A heating hold needs a recent off baseline under similar outdoor conditions. This subtracts local room cooling rather than attributing the full observed temperature rise to the radiator.
-- Each independent valve hold contributes **one** observation. Longer holds improve that observation, not its confidence count.
-- Evidence is bounded to 32 holds per 5-percentage-point bin and expires after 14 days. Conflicting heat observations stop that bin influencing control.
-
-These gates intentionally favor incomplete evidence over a confident wrong model. Sunlight, occupants, changing boiler water temperatures and unmeasured heat sources can still confound observations. The model estimates the room/radiator system under recently observed operating conditions, not a permanent factory calibration. Quiet Aqara sensors can prevent training even while ordinary heating remains functional.
-
-## Uncertainty and estimated saturation
-
-After six independent holds in a bin, the diagnostic includes a distribution-free, pointwise confidence interval for the median heating response. The order-statistic interval has at least 95% nominal coverage for independent, identically distributed holds, with an additional 0.003 K/min noise floor on either side. Before that, confidence bounds are null. These intervals do not cover systematic sensor bias or unobserved boiler/solar changes and are not simultaneous confidence bands over the entire curve.
-
-An effective saturation estimate requires supported observations reaching **100%**, at least three supported points in the candidate tail and no gap wider than 20 percentage points. The upper bound on additional heating must be within 15% of the estimated 100%-opening heat. The resulting percentage is an approximate useful-opening knee, not the exact physical point of full flow. Wide overlapping intervals do not count as proof of saturation. The estimate is advisory and never silently lowers the configured cap.
-
-## Diagnostic plots
-
-1. Copy `www/mpc-response-card.js` to `/config/www/mpc-response-card.js`.
-2. Add `/local/mpc-response-card.js` as a **JavaScript module** in dashboard resources.
-3. Add the card below, replacing the example entity with your Better Thermostat entity:
+Install `www/mpc-response-card.js` as a JavaScript module and configure:
 
 ```yaml
 type: custom:mpc-response-card
 entity: climate.my_room
-title: Room · learned heating response
 ```
 
-The card plots the estimated response with pointwise confidence intervals, the actual control curve, independent-hold coverage, learning status and estimated saturation. Unobserved points stay empty. The dashed control curve visibly distinguishes assumed/interpolated response from observations. A second Plotly example in `history-card.yaml` charts measured/target temperature, estimated retained heat and valve commands over time.
+The updated card shows candidate response, uncertainty ranges, episode coverage,
+report age, heartbeat allowance and the current collection reason. Update the
+resource URL's version parameter when replacing the file to avoid browser caching.
+`history-card.yaml` remains compatible; the retained learned-heat trace stays empty
+while observation-only operation is in use.
 
-## Historical replay and seeding
+## What the estimator uses
 
-`scripts/replay_valve_response.py` reads an exported Home Assistant history response. Export climate attributes, raw room temperature, valve opening number, contact and weather with `significant_changes_only=0`. Use only periods with known MPC V2 valve commands and unchanged room/sensor/valve wiring.
+- Raw room-temperature values paired with their actual report timestamps. BT's
+  filtered/delayed control temperature is not paired with a newer raw timestamp.
+- Both changed readings and unchanged-value heartbeats. Controller ticks never
+  count as fresh measurements.
+- Successful actuator commands at their write times, plus observed outdoor changes.
+  These are commands, not independently measured physical valve positions.
+- One shared physical-source learner across eco, comfort and manual targets.
+  Target-specific MPC controller state remains separate.
+
+Each episode spans at least six hours and twelve genuine reports. Between reports,
+the model integrates every recorded valve command through radiator inertia and
+room heat loss. Commands may vary throughout an episode. Episodes have disjoint
+measurement intervals; adjacent episodes share only their boundary reading.
+
+A small monotone curve uses at most three opening knots. The fit searches a bounded
+room-loss coefficient, estimates initial retained radiator heat and a constant
+background heat term, and assumes a 15-minute radiator lag. This is deliberately
+less flexible than fitting a separate coefficient at every valve percentage.
+
+The model requires cooling and heating exposure and a sufficiently independent
+set of inputs. It fits the first three quarters of an episode's intervals and
+checks predictions on the remainder against both error limits and a constant
+last-temperature predictor. Fitting runs in Home Assistant's executor, outside the
+main event loop.
+
+## Silence, uncertainty and interruptions
+
+A quiet sensor contributes no new measurement. The learner retains command history
+and waits for a real report. The expected heartbeat allowance starts at 90 minutes
+and can grow, from observed report gaps, to at most 150 minutes. This allowance is
+for learning, not a change to Home Assistant's device-availability policy.
+
+Unavailability, missing heartbeats, open/unknown contacts, maintenance, missing
+outdoor data and large temperature jumps discard the unfinished episode. Window
+recovery retains the existing 45-minute learning pause. Handling-like jumps also
+start a 45-minute learning quarantine. There is no assumption that silence proves
+the temperature stayed within a specific threshold: missed radio packets and
+firmware-specific reporting rules can invalidate that inference.
+
+Blue bands show sensitivity to plausible loss coefficients, finite measurement
+information and differences between accepted episodes, with a small noise floor.
+Points with excessively wide bounds are withheld. The bands are **not 95% confidence bounds**
+and do not account for every systematic model error. Unvisited higher openings
+stay unknown. Saturation remains unknown in this observation-only release.
+
+`candidate_consistent` is a diagnostic comparison across episodes, not permission
+to use the curve. Neither that field nor importing evidence activates control.
+Boiler changes, sunlight, occupants and sensor placement can still confound room
+heat estimation. Some homes or seasons may provide insufficient information.
+
+## Persistence and migration
+
+Shared response evidence lives under `response_learners` in the existing per-entry
+Better Thermostat state store. It is keyed by room sensor, outdoor source and valve,
+not target temperature. At most 24 accepted episode summaries are retained for
+14 days. Pending reports/commands are deliberately not resumed after restart.
+
+Old target-specific v1 hold evidence is preserved for rollback, but is not promoted
+into new episode counts or confidence. Standalone v1 imports are bounded and
+archived. Duplicate/overlapping, expired and malformed episode records are rejected.
+No historical evidence is automatically injected into a running installation.
+
+## Private replay
+
+Export climate attributes, raw temperature, opening command, window and weather
+history with `significant_changes_only=0` and an explicit end time. Then run:
 
 ```sh
 .venv/bin/python scripts/replay_valve_response.py history.json replay.json \
@@ -62,12 +108,20 @@ The card plots the estimated response with pointwise confidence intervals, the a
   --weather weather.home
 ```
 
-The result includes a source hash, accepted evidence, diagnostics and rejection counts. It does not write to Home Assistant or bypass acceptance gates. Evidence can be restored by `ValveResponseLearner.restore()` for offline simulations. There is deliberately no unvalidated live state-file import. Keep private exports outside the public repository.
+The replay is diagnostic only. Recorder does not preserve every unchanged-value
+report; startup rows and asynchronous command acknowledgements limit its fidelity.
+Zero accepted episodes can be the correct result. Keep household exports outside
+public repositories.
 
-A replay may legitimately accept zero independent holds. Do not seed a curve from rejected intervals or treat the existing aggregate heating-rate estimate as a measured valve curve. Existing Better Thermostat learning is preserved.
+## Validation and remaining work
 
-## Validation and rollout
+Tests cover threshold-triggered reports, hourly heartbeats, timing jitter, noise,
+sensor lag, changing valve commands, missing packets, actual outages, handling,
+confounding heat, boiler variation, target changes and persistence. A separately
+simulated room supplies the reference response. Controller comparison tests assert
+identical valve commands with observation enabled or disabled.
 
-Tests use an independent simulated room with a nonlinear valve reaching full response at 35%, radiator inertia, sensor lag and noise. They cover estimation, uncertainty, missing coverage, stale data, interruptions, outliers, bounded persistence, optimizer cap behavior and closed-loop overshoot. In the reference closed-loop test with a 100% configured cap, peak overshoot falls from 0.291°C to 0.118°C; the final temperature is 21.548°C for a 21.5°C target. Simulated performance is not a guarantee for a real room.
-
-Start with observation and inspect accepted-hold coverage before expecting a trustworthy curve. Use the existing cap for initial deployment; increasing it to 100% is a separate operator choice. No running Home Assistant installation or dashboard was changed while developing this branch.
+A future control-enabled version needs field prediction validation and calibrated
+uncertainty across independent episodes. This release intentionally makes no claim
+of improved live overshoot or an identified full-flow opening. Replacing the old
+learner does not by itself establish that a particular home has enough evidence.
