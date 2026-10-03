@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 import math
 from time import time
 
@@ -11,8 +12,9 @@ from homeassistant.helpers.event import (
     async_track_state_report_event,
 )
 
-from .calibration.mpc_v2.response import ResponseObservation
-from .calibration.mpc_v2.response_model import fit_episode
+from .calibration.mpc_v2.response import ResponseObservation, fit_response_request
+
+_LOGGER = logging.getLogger(__name__)
 
 
 def _temperature(state, *, weather=False):
@@ -41,6 +43,7 @@ def attach_response_collection(host, entity_id):
     if source in subscriptions:
         subscriptions[source]()
         return learner
+    learner.interrupt(time(), "startup_recovery")
     learner.defer_fitting = True
     contacts = []
     for value in (getattr(host, "window_id", None), getattr(host, "door_id", None)):
@@ -54,11 +57,15 @@ def attach_response_collection(host, entity_id):
         nonlocal fitting
         try:
             while learner.pending_fits:
-                reports, inputs = learner.pending_fits.popleft()
-                result = await host.hass.async_add_executor_job(
-                    fit_episode, reports, inputs
-                )
-                learner.finish_fit(reports, result)
+                request = learner.pending_fits.popleft()
+                try:
+                    result = await host.hass.async_add_executor_job(
+                        fit_response_request, request
+                    )
+                except Exception:
+                    _LOGGER.exception("Valve response fit failed for %s", entity_id)
+                    result = (None, "fit_failed")
+                learner.finish_request(request, result)
                 host.state_mgr.mark_dirty()
                 host.schedule_save_state()
         finally:
@@ -108,6 +115,7 @@ def attach_response_collection(host, entity_id):
                 )
             )
         host.state_mgr.mark_dirty()
+        host.schedule_save_state()
         if learner.pending_fits and not fitting:
             fitting = True
             host._spawn_owned(finish_fits(), name="bt_response_fit")

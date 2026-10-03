@@ -58,17 +58,25 @@ def replay(history, *, climate, room, valve, window, weather):
             contact_changed = datetime.fromisoformat(
                 states[window][1]["last_changed"].replace("Z", "+00:00")
             ).timestamp()
-            valid = (
-                known_source
-                and states[window][1]["state"] == "off"
-                and t - contact_changed >= 45 * 60
-                and not c.get("degraded_mode", False)
-                and not c.get("window_open", False)
-                and not c.get("door_open", False)
-                and not c.get("unavailable_sensors", [])
-                and t - wt <= 5400
+            reason = None
+            delivery = c.get("valve_delivery", {})
+            if not known_source:
+                reason = "unknown_valve_command"
+            elif t - wt > 5400:
+                reason = "outdoor_unavailable"
+            elif c.get("degraded_mode", False) or c.get("unavailable_sensors", []):
+                reason = "unreliable_input"
+            if states[window][1]["state"] != "off":
+                reason = "window_open_or_unavailable"
+            elif t - contact_changed < 45 * 60:
+                reason = "window_recovery"
+            if any(v.get("uncertain", False) for v in delivery.values()):
+                reason = "valve_command_uncertain"
+            learner.observe(
+                ResponseObservation(
+                    t, rt, temp, outdoor, opening, reason is None, reason or ""
+                )
             )
-            learner.observe(ResponseObservation(t, rt, temp, outdoor, opening, valid))
         except ValueError, KeyError, TypeError:
             learner.interrupt(t, "missing_or_invalid_state")
         reports[learner.status] += 1

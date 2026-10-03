@@ -50,21 +50,26 @@ certainty. Delayed closes retry twice and stop when superseded or the thermostat
 unloads. `valve_delivery` reports command certainty and runtime failure counts;
 clear general controller errors do not establish reliable radio delivery.
 
-Each episode spans at least six hours and twelve genuine reports. Between reports,
-the model integrates every recorded valve command through radiator inertia and
-room heat loss. Commands may vary throughout an episode. Episodes have disjoint
-measurement intervals; adjacent episodes share only their boundary reading.
+The learner seals clean periods at six hours or when a window/outage interrupts
+collection. Shorter periods qualify with at least six genuine reports spanning
+90 minutes; their heating burst can be much shorter. Failed fitting does not
+discard these completed periods. Between reports, the model integrates every
+recorded valve command through radiator inertia and room heat loss. Separate
+periods never bridge an open window, outage or recovery interval.
 
 A small monotone curve uses at most three opening knots. The fit searches a bounded
 room-loss coefficient, estimates initial retained radiator heat and a constant
 background heat term, and assumes a 15-minute radiator lag. This is deliberately
 less flexible than fitting a separate coefficient at every valve percentage.
 
-The model requires cooling and heating exposure and a sufficiently independent
-set of inputs. It fits the first three quarters of an episode's intervals and
-checks predictions on the remainder against both error limits and a constant
-last-temperature predictor. Fitting runs in Home Assistant's executor, outside the
-main event loop.
+Long periods can still fit independently with 45 off minutes and 60 heating
+minutes. Short-period fitting pools at least three heated periods, with the same
+minimum exposure totals across them. The room response and loss coefficient are
+shared; each period has its own initial radiator heat and background heat term.
+The latest heated period is withheld from curve fitting. Its first two intervals
+initialize those local terms, then later temperatures must be predicted better
+than both a no-heating model and the last known temperature. Unvisited or poorly
+identified openings remain unknown. Fitting runs in Home Assistant's executor.
 
 ## Silence, uncertainty and interruptions
 
@@ -73,10 +78,12 @@ and waits for a real report. The expected heartbeat allowance starts at 90 minut
 and can grow, from observed report gaps, to at most 150 minutes. This allowance is
 for learning, not a change to Home Assistant's device-availability policy.
 
-Unavailability, missing heartbeats, open/unknown contacts, maintenance, missing
-outdoor data and large temperature jumps discard the unfinished episode. Window
-recovery retains the existing 45-minute learning pause. Handling-like jumps also
-start a 45-minute learning quarantine. There is no assumption that silence proves
+Unavailability, missing heartbeats and open/unknown contacts end the unfinished
+period at its last valid report. Its clean earlier intervals can be retained.
+Ambiguous valve delivery and handling-like temperature jumps discard the affected
+pending period. Window recovery retains the existing 45-minute learning pause;
+handling-like jumps also start a 45-minute quarantine. A new actual report is
+required after an interruption or collector startup. There is no assumption that silence proves
 the temperature stayed within a specific threshold: missed radio packets and
 firmware-specific reporting rules can invalidate that inference.
 
@@ -95,9 +102,12 @@ heat estimation. Some homes or seasons may provide insufficient information.
 
 Shared response evidence lives under `response_learners` in the existing per-entry
 Better Thermostat state store. It is keyed by room sensor, outdoor source and valve,
-not target temperature. At most 24 accepted episode summaries are retained for
-14 days. Pending reports/commands are deliberately not resumed after restart.
+not target temperature. At most 24 accepted summaries and eight unused completed
+periods are retained for 14 days. Heating periods take priority over cooling-only
+periods. Completed periods survive restart; pending reports/commands do not.
+Accepted batches consume their contributing periods and cannot be counted again.
 
+Version 2 accepted summaries and counters are preserved when moving to version 3.
 Old target-specific v1 hold evidence is preserved for rollback, but is not promoted
 into new episode counts or confidence. Standalone v1 imports are bounded and
 archived. Duplicate/overlapping, expired and malformed episode records are rejected.

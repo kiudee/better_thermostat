@@ -9,6 +9,7 @@ from statistics import median
 from typing import Any
 
 from .response_model import GRID, fit_episode
+from .response_pool import fit_short_periods, period_exposure
 
 
 @dataclass(frozen=True)
@@ -24,10 +25,29 @@ class ResponseObservation:
     reason: str = "unreliable_input"
 
 
+@dataclass(frozen=True)
+class ResponseFitRequest:
+    """Keep a fit bound to its source and immutable completed periods."""
+
+    generation: int
+    periods: list[dict[str, Any]]
+    pooled: bool
+
+
+def fit_response_request(
+    request: ResponseFitRequest,
+) -> tuple[dict[str, Any] | None, str]:
+    """Run a pure fit outside Home Assistant's event loop."""
+    if request.pooled:
+        return fit_short_periods(request.periods)
+    period = request.periods[0]
+    return fit_episode(period["reports"], period["inputs"])
+
+
 class ValveResponseLearner:
     """Accumulate independent episodes; never count silence as a measurement."""
 
-    VERSION = 2
+    VERSION = 3
     GRID = GRID
     RETENTION_S = 14 * 86400.0
     MAX_EPISODES = 24
@@ -35,6 +55,8 @@ class ValveResponseLearner:
     MAX_INPUTS = 2048
     EPISODE_S = 6 * 3600.0
     MAX_EPISODE_S = 24 * 3600.0
+    MAX_PERIODS = 8
+    MIN_PERIOD_S = 90 * 60.0
 
     def __init__(self) -> None:
         """Start with no assumed temperature or response evidence."""
@@ -48,14 +70,16 @@ class ValveResponseLearner:
         self._now = 0.0
         self._last_report = -math.inf
         self._not_before = 0.0
+        self._invalidated_at = -math.inf
         self._last_command: float | None = None
         self._last_outdoor: float | None = None
         self._gaps: deque[float] = deque(maxlen=24)
         self.legacy: dict[str, Any] | None = None
         self.defer_fitting = False
-        self.pending_fits: deque[tuple[list[list[float]], list[list[float]]]] = deque(
-            maxlen=2
-        )
+        self.periods: list[dict[str, Any]] = []
+        self.last_fit_reason: str | None = None
+        self._generation = 0
+        self.pending_fits: deque[ResponseFitRequest] = deque(maxlen=2)
 
     @property
     def heartbeat_limit_s(self) -> float:
@@ -65,7 +89,9 @@ class ValveResponseLearner:
     def bind_source(self, source: str, now: float) -> None:
         """Prevent transferring evidence to a different physical source."""
         if self.source != source:
+            self._generation += 1
             self.episodes.clear()
+            self.periods.clear()
             self.pending_fits.clear()
             self._gaps.clear()
             self._last_report = -math.inf
@@ -74,6 +100,14 @@ class ValveResponseLearner:
 
     def interrupt(self, now: float, reason: str) -> None:
         """Discard an invalid pending episode, retaining completed evidence."""
+        if reason in (
+            "window_open_or_unavailable",
+            "missing_heartbeat",
+            "outdoor_unavailable",
+            "sensor_unavailable",
+            "valve_unavailable",
+        ):
+            self._seal_period()
         if self.reports:
             self.rejections[reason] += 1
             self.recent.append(
@@ -87,8 +121,107 @@ class ValveResponseLearner:
         self.reports.clear()
         self.inputs.clear()
         self._not_before = max(self._not_before, now)
+        self._invalidated_at = max(self._invalidated_at, now)
         self.status = reason
         self._now = max(self._now, now)
+
+    def _prune_periods(self) -> None:
+        self.periods = [
+            p
+            for p in self.periods
+            if 0 <= self._now - p["reports"][-1][0] <= self.RETENTION_S
+        ]
+        heated = [
+            p
+            for p in self.periods
+            if period_exposure(p["reports"], p["inputs"])[1] >= 5
+        ]
+        cooling = [p for p in self.periods if p not in heated]
+        self.periods = sorted(
+            [*heated[-6:], *cooling[-2:]], key=lambda p: p["reports"][0][0]
+        )[-self.MAX_PERIODS :]
+
+    def _restore_period(self, raw: object, now: float) -> dict[str, Any] | None:
+        if not isinstance(raw, dict):
+            return None
+        reports, inputs = raw.get("reports"), raw.get("inputs")
+        if not isinstance(reports, list) or not 6 <= len(reports) <= self.MAX_REPORTS:
+            return None
+        if not isinstance(inputs, list) or not 1 <= len(inputs) <= self.MAX_INPUTS:
+            return None
+        for rows, width in ((reports, 2), (inputs, 3)):
+            if any(
+                not isinstance(row, list)
+                or len(row) != width
+                or any(
+                    not isinstance(v, (int, float))
+                    or isinstance(v, bool)
+                    or not math.isfinite(v)
+                    for v in row
+                )
+                for row in rows
+            ):
+                return None
+            if any(a[0] >= b[0] for a, b in zip(rows, rows[1:])):
+                return None
+        start, end = reports[0][0], reports[-1][0]
+        if not (
+            0 < start < end <= now
+            and 0 <= now - end <= self.RETENTION_S
+            and self.MIN_PERIOD_S <= end - start <= self.MAX_EPISODE_S
+            and inputs[0][0] == start
+            and inputs[-1][0] <= end
+        ):
+            return None
+        if any(not -10 <= r[1] <= 45 for r in reports):
+            return None
+        if any(not 0 <= r[1] <= 100 or not -50 <= r[2] <= 50 for r in inputs):
+            return None
+        return {"reports": [r[:] for r in reports], "inputs": [r[:] for r in inputs]}
+
+    def _queue_fit(self, periods: list[dict[str, Any]], *, pooled: bool) -> None:
+        request = ResponseFitRequest(self._generation, periods, pooled)
+        if self.defer_fitting:
+            self.pending_fits.append(request)
+        else:
+            self.finish_request(request, fit_response_request(request))
+
+    def _seal_period(self) -> None:
+        if (
+            len(self.reports) < 6
+            or self.reports[-1][0] - self.reports[0][0] < self.MIN_PERIOD_S
+        ):
+            return
+        end = self.reports[-1][0]
+        period = {
+            "reports": [r[:] for r in self.reports],
+            "inputs": [r[:] for r in self.inputs if r[0] <= end],
+        }
+        if not period["inputs"]:
+            return
+        if any(
+            p["reports"][0][0] < end and self.reports[0][0] < p["reports"][-1][0]
+            for p in self.periods
+        ):
+            return
+        self.periods.append(period)
+        self._prune_periods()
+        off, heated, maximum = period_exposure(period["reports"], period["inputs"])
+        if len(self.reports) >= 12 and off >= 45 and heated >= 60 and maximum >= 10:
+            self._queue_fit([period], pooled=False)
+        elif (
+            sum(
+                period_exposure(p["reports"], p["inputs"])[1] >= 5 for p in self.periods
+            )
+            >= 3
+        ):
+            self._queue_fit(self.periods[:], pooled=True)
+        else:
+            self.last_fit_reason = (
+                "waiting_for_independent_periods"
+                if heated >= 5
+                else "waiting_for_heating_evidence"
+            )
 
     def record_command(self, now: float, percent: float) -> None:
         """Record a successful actuator command at its actual write time."""
@@ -150,7 +283,11 @@ class ValveResponseLearner:
         if obs.now - obs.reported_at > self.heartbeat_limit_s:
             self.interrupt(obs.now, "missing_heartbeat")
             return
-        if obs.now < self._not_before or obs.reported_at < self._not_before:
+        if (
+            obs.now < self._not_before
+            or obs.reported_at < self._not_before
+            or obs.reported_at <= self._invalidated_at
+        ):
             self.status = "recovery"
             return
         if self.reports:
@@ -177,12 +314,7 @@ class ValveResponseLearner:
         self.status = "collecting_episode"
         duration = self.reports[-1][0] - self.reports[0][0]
         if len(self.reports) >= 12 and duration >= self.EPISODE_S:
-            reports, inputs = self.reports, self.inputs
-            if self.defer_fitting:
-                self.pending_fits.append((reports, inputs))
-                self.status = "evaluating_episode"
-            else:
-                self.finish_fit(reports, fit_episode(reports, inputs))
+            self._seal_period()
             self.reports = [self.reports[-1]]
             self.inputs = [[obs.reported_at, obs.valve_pct, obs.outdoor]]
         elif duration > self.MAX_EPISODE_S or len(self.reports) >= self.MAX_REPORTS:
@@ -193,6 +325,12 @@ class ValveResponseLearner:
     ) -> None:
         """Commit a pure model fit on the owning event loop."""
         evidence, reason = result
+        self.last_fit_reason = reason
+        if evidence is not None and any(
+            e["start"] < evidence["end"] and evidence["start"] < e["end"]
+            for e in self.episodes
+        ):
+            return
         self.recent.append(
             {
                 "start": reports[0][0],
@@ -203,12 +341,32 @@ class ValveResponseLearner:
         )
         if evidence is not None:
             self.episodes = [*self.episodes, evidence][-self.MAX_EPISODES :]
+            self.periods = [
+                p for p in self.periods if p["reports"][-1][0] > evidence["end"]
+            ]
         else:
             self.rejections[reason] += 1
-        self.status = reason
+        if self.status in (
+            "collecting_episode",
+            "waiting_for_report",
+            "evaluating_episode",
+        ):
+            self.status = reason
+
+    def finish_request(
+        self, request: ResponseFitRequest, result: tuple[dict[str, Any] | None, str]
+    ) -> None:
+        """Ignore an executor result from a superseded physical source."""
+        if request.generation != self._generation:
+            return
+        reports = sorted(
+            {r[0]: r for p in request.periods for r in p["reports"]}.values()
+        )
+        self.finish_fit(reports, result)
 
     def diagnostics(self) -> dict[str, Any]:
         """Expose candidate coverage and sensitivity without implying control."""
+        self._prune_periods()
         self.episodes = [
             e for e in self.episodes if 0 <= self._now - e["end"] <= self.RETENTION_S
         ]
@@ -237,6 +395,11 @@ class ValveResponseLearner:
             "independent_holds": counts,
             "episode_coverage": counts,
             "accepted_episodes": len(self.episodes),
+            "retained_periods": len(self.periods),
+            "retained_heating_min": sum(
+                period_exposure(p["reports"], p["inputs"])[1] for p in self.periods
+            ),
+            "last_fit_reason": self.last_fit_reason,
             "candidate_consistent": consistent,
             "saturation_pct": None,
             "status": self.status,
@@ -275,6 +438,7 @@ class ValveResponseLearner:
             "recent": list(self.recent),
             "gaps": list(self._gaps),
             "legacy": self.legacy,
+            "periods": self.periods,
         }
 
     def restore(self, payload: object, now: float) -> None:
@@ -302,7 +466,7 @@ class ValveResponseLearner:
                 }
                 self.legacy = {"v": 1, "source": self.source, "samples": clean}
             return
-        if payload.get("v") != self.VERSION:
+        if payload.get("v") not in (2, self.VERSION):
             return
         episodes = payload.get("episodes", [])
         for e in episodes[-self.MAX_EPISODES :] if isinstance(episodes, list) else []:
@@ -312,7 +476,7 @@ class ValveResponseLearner:
                 if not (
                     0 <= now - e["end"] <= self.RETENTION_S
                     and 0 <= e["start"] < e["end"]
-                    and 12 <= e["reports"] <= self.MAX_REPORTS
+                    and 12 <= e["reports"] <= self.MAX_REPORTS * self.MAX_PERIODS
                     and 0 < e["loss"] < 0.02
                     and 0 <= e["validation_rmse"] <= 0.15
                     and 10 <= e["maximum_opening"] <= 100
@@ -362,8 +526,27 @@ class ValveResponseLearner:
                         )
                     }
                 )
+                if e.get("validation_kind") == "separate_period":
+                    self.episodes[-1]["validation_kind"] = "separate_period"
+                    self.episodes[-1]["period_count"] = min(
+                        self.MAX_PERIODS, max(3, int(e.get("period_count", 3)))
+                    )
             except KeyError, TypeError, ValueError:
                 continue
+        periods = payload.get("periods", [])
+        for raw in periods[-self.MAX_PERIODS :] if isinstance(periods, list) else []:
+            period = self._restore_period(raw, now)
+            if period is None:
+                continue
+            start, end = period["reports"][0][0], period["reports"][-1][0]
+            occupied = [(e["start"], e["end"]) for e in self.episodes]
+            occupied.extend(
+                (p["reports"][0][0], p["reports"][-1][0]) for p in self.periods
+            )
+            if any(a < end and start < b for a, b in occupied):
+                continue
+            self.periods.append(period)
+        self._prune_periods()
         gaps = payload.get("gaps", [])
         for gap in gaps[-24:] if isinstance(gaps, list) else []:
             if (

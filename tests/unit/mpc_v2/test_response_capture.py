@@ -30,7 +30,7 @@ async def test_successful_commands_are_recorded_between_reports(hass, monkeypatc
     )
     manager = StateManager(hass, "room")
     learner = manager.get_response_learner("sensor.room|weather.home|climate.valve")
-    learner.observe(ResponseObservation(100000, 100000, 21, 10, 0))
+    learner.observe(ResponseObservation(100001, 100001, 21, 10, 0))
     quirk = SimpleNamespace(override_set_valve=AsyncMock(return_value=True))
     trv = SimpleNamespace(
         model_quirks=quirk,
@@ -98,7 +98,7 @@ async def test_deferred_close_records_only_completed_device_writes(
     monkeypatch.setattr(quirk, "_TRVZB_VALVE_RETRY_DELAYS_S", (0.0, 0.0), raising=False)
     manager = StateManager(hass, "deferred")
     learner = manager.get_response_learner("sensor.room|weather.home|climate.valve")
-    learner.observe(ResponseObservation(100000, 100000, 21, 10, 40))
+    learner.observe(ResponseObservation(100001, 100001, 21, 10, 40))
     registry = MagicMock()
     registry.async_get.return_value = SimpleNamespace(device_id="radiator")
     registry.entities.values.return_value = [

@@ -17,6 +17,27 @@ GRID = tuple(range(0, 101, 5))
 RADIATOR_LAG_MIN = 15.0
 
 
+def period_exposure(
+    reports: list[list[float]], inputs: list[list[float]]
+) -> tuple[float, float, float]:
+    """Measure exposure and sustained commands only inside observed intervals."""
+    start, end = reports[0][0], reports[-1][0]
+    off = heated = maximum = held = 0.0
+    previous = None
+    for a, b in zip(inputs, [*inputs[1:], [end, 0, 0]]):
+        minutes = max(0.0, min(end, b[0]) - max(start, a[0])) / 60
+        off += minutes if a[1] <= 1 else 0.0
+        heated += minutes if a[1] >= 5 else 0.0
+        if a[1] != previous:
+            if held >= 1 and previous is not None:
+                maximum = max(maximum, previous)
+            previous, held = a[1], 0.0
+        held += minutes
+    if held >= 1 and previous is not None:
+        maximum = max(maximum, previous)
+    return off, heated, maximum
+
+
 def _basis(opening: float, knots: list[float]) -> NDArray[np.float64]:
     left = np.array([0.0, *knots[:-1]])
     return np.clip((opening - left) / (np.array(knots) - left), 0, 1)
@@ -93,12 +114,7 @@ def fit_episode(
     """Return a candidate only when varied inputs identify a validated model."""
     if len(reports) < 12 or len(inputs) < 2:
         return None, "insufficient_reports"
-    durations = []
-    for a, b in zip(inputs, [*inputs[1:], [reports[-1][0], 0, 0]]):
-        durations.append((a[1], max(0, b[0] - a[0]) / 60))
-    off = sum(dt for opening, dt in durations if opening <= 1)
-    heated = sum(dt for opening, dt in durations if opening >= 5)
-    maximum = max(opening for opening, dt in durations if dt > 0)
+    off, heated, maximum = period_exposure(reports, inputs)
     if off < 45 or heated < 60 or maximum < 10:
         return None, "insufficient_excitation"
     knots = sorted({min(15.0, maximum), min(35.0, maximum), maximum})
