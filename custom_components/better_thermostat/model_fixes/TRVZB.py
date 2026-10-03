@@ -307,6 +307,10 @@ async def maybe_set_sonoff_valve_percent(self, entity_id, percent: int) -> bool:
         if wrote:
             record_valve_command(self, entity_id, pct, "override")
         return wrote
+    except asyncio.CancelledError:
+        # Cancellation can leave only one of the paired limits written.
+        invalidate_valve_command(self, entity_id)
+        raise
     except (
         HomeAssistantError,
         OSError,

@@ -76,7 +76,9 @@ async def test_shared_evidence_saves_once_and_preserves_legacy_targets(
     assert restored.get_response_learner(source).reports == []
 
 
-@pytest.mark.parametrize("refused", [None, "opening", "closing", "transient"])
+@pytest.mark.parametrize(
+    "refused", [None, "opening", "closing", "transient", "cancelled"]
+)
 async def test_deferred_close_records_only_completed_device_writes(
     hass, monkeypatch, refused
 ):
@@ -112,8 +114,10 @@ async def test_deferred_close_records_only_completed_device_writes(
     ]
     monkeypatch.setattr(quirk.er, "async_get", lambda _: registry)
     delivered = []
-    refused_entity = "number.closing" if refused == "closing" else "number.opening"
-    refused_value = 70 if refused == "closing" else 30
+    refused_entity = (
+        "number.closing" if refused in ("closing", "cancelled") else "number.opening"
+    )
+    refused_value = 70 if refused in ("closing", "cancelled") else 30
     failures = []
 
     async def write(_domain, _service, data, **_kwargs):
@@ -124,6 +128,8 @@ async def test_deferred_close_records_only_completed_device_writes(
             and (refused != "transient" or not failures)
         ):
             failures.append(data["value"])
+            if refused == "cancelled":
+                raise asyncio.CancelledError
             raise HomeAssistantError("Simulated unacknowledged close")
         delivered.append((data["entity_id"], data["value"]))
 
@@ -161,7 +167,7 @@ async def test_deferred_close_records_only_completed_device_writes(
             assert learner.diagnostics()["status"] == "valve_command_uncertain"
             assert not learner.reports
             assert (refused_entity, refused_value) not in delivered
-            assert len(failures) == 3
+            assert len(failures) == (1 if refused == "cancelled" else 3)
         else:
             assert learner.inputs[-2][1] == 50
             assert learner.inputs[-1][1] == 30
