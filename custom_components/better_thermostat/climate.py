@@ -2893,6 +2893,16 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
                     methods[trv_id] = m
             if methods:
                 dev_specific["valve_method"] = methods
+            dev_specific["valve_delivery"] = {
+                trv_id: {
+                    "confirmed_command_pct": info.last_valve_percent,
+                    "uncertain": info.valve_command_uncertain,
+                    "failed_writes": info.valve_write_failures,
+                    "last_failure": info.last_valve_write_failure,
+                }
+                for trv_id, info in (self.real_trvs or {}).items()
+                if isinstance(info, Trv)
+            }
         except Exception:
             pass
 

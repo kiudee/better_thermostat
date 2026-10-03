@@ -36,6 +36,7 @@ from collections.abc import Mapping
 from dataclasses import asdict, dataclass, field
 import logging
 import math
+from time import time
 from typing import Any
 
 from homeassistant.core import HomeAssistant
@@ -48,6 +49,7 @@ from .calibration.mpc_v2 import (
     export_mpc_v2_state,
     import_mpc_v2_state,
 )
+from .calibration.mpc_v2.response import ValveResponseLearner
 from .calibration.pid import PIDState
 from .calibration.tpi import TpiState
 from .const import (
@@ -75,6 +77,7 @@ class MpcV2StateData:
     created_ts: float = 0.0
     outdoor_fallback_logged: bool = False
     snapshot: dict[str, Any] = field(default_factory=dict)
+    response: dict[str, Any] = field(default_factory=dict)
 
 
 _LOGGER = logging.getLogger(__name__)
@@ -107,6 +110,7 @@ class RuntimeState:
     tpi: dict[str, TpiState] = field(default_factory=dict)
     thermal: ThermalStats = field(default_factory=ThermalStats)
     presets: dict[str, float] = field(default_factory=dict)
+    response_learners: dict[str, dict[str, Any]] = field(default_factory=dict)
 
 
 # Serialization helpers
@@ -213,6 +217,9 @@ def deserialize_mpc_v2(raw: dict[str, Any]) -> MpcV2StateData:
     snapshot = raw.get("snapshot")
     if isinstance(snapshot, Mapping):
         state.snapshot = dict(snapshot)
+    response = raw.get("response")
+    if isinstance(response, Mapping):
+        state.response = dict(response)
     return state
 
 
@@ -264,6 +271,13 @@ def deserialize_tpi(raw: dict[str, Any]) -> TpiState:
 def _deserialize(raw: dict[str, Any]) -> RuntimeState:
     """Reconstruct a RuntimeState from a raw dict (loaded from Store)."""
     state = RuntimeState(version=raw.get("version", CURRENT_VERSION))
+    response_raw = raw.get("response_learners", {})
+    if isinstance(response_raw, dict):
+        state.response_learners = {
+            k: v
+            for k, v in list(response_raw.items())[:8]
+            if isinstance(k, str) and len(k) <= 512 and isinstance(v, dict)
+        }
 
     mpc_raw = raw.get("mpc", {})
     if isinstance(mpc_raw, Mapping):
@@ -364,6 +378,7 @@ class StateManager:
         # Live MPC v2 controllers, held in memory across cycles. The persisted
         # ``_state.mpc_v2`` snapshots are folded in only at save time.
         self._mpc_v2_live: dict[str, MpcV2State] = {}
+        self._response_live: dict[str, ValveResponseLearner] = {}
         self._dirty = False
 
     # -- Public properties ---------------------------------------------------
@@ -417,6 +432,30 @@ class StateManager:
         self._mpc_v2_live[key] = state
         self._dirty = True
 
+    def get_response_learner(self, source: str) -> ValveResponseLearner:
+        """Share response evidence across targets for one physical source."""
+        learner = self._response_live.get(source)
+        if learner is None:
+            learner = ValveResponseLearner()
+            learner.restore(self._state.response_learners.get(source), time())
+            learner.bind_source(source, time())
+            self._response_live[source] = learner
+        return learner
+
+    def record_response_command(
+        self, entity_id: str, percent: float, now: float
+    ) -> None:
+        """Track successful valve writes between sparse sensor reports."""
+        for source, learner in self._response_live.items():
+            if source.rsplit("|", 1)[-1] == entity_id:
+                learner.record_command(now, percent)
+
+    def invalidate_response_command(self, entity_id: str, now: float) -> None:
+        """End evidence when a device write may have been partially delivered."""
+        for source, learner in self._response_live.items():
+            if source.rsplit("|", 1)[-1] == entity_id:
+                learner.interrupt(now, "valve_command_uncertain")
+
     def _sync_mpc_v2_live(self) -> None:
         """Fold live MPC v2 controllers into the persistable snapshot.
 
@@ -426,7 +465,14 @@ class StateManager:
         for key, live in self._mpc_v2_live.items():
             exported = export_mpc_v2_state(live)
             if exported is not None:
+                if live.response_shared:
+                    # Preserve old target-specific evidence for rollback.
+                    exported["response"] = self._state.mpc_v2.get(
+                        key, MpcV2StateData()
+                    ).response
                 self._state.mpc_v2[key] = deserialize_mpc_v2(exported)
+        for source, learner in self._response_live.items():
+            self._state.response_learners[source] = learner.export()
 
     def get_pid(self, key: str) -> PIDState:
         """Get or create PID state for a key."""

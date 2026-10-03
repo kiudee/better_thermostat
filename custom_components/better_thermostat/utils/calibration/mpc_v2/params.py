@@ -27,6 +27,9 @@ class MpcV2Params:
     # Observer / plant-simulation cadence (Kalman, Smith). QP cadence lives
     # on ``qp.step_s``.
     plant_step_s: float = 30.0
+    learn_valve_response: bool = False
+    response_heat_max: float | None = None
+    response_loss: float | None = None
 
 
 # Static plant priors as an alternative to the AUTO path (which derives

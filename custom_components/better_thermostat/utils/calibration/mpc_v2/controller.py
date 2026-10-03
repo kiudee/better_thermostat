@@ -16,6 +16,7 @@ from ..mpc_v2_internals.governor import ScalarReferenceGovernor
 from ..mpc_v2_internals.kalman import KalmanObserver
 from ..mpc_v2_internals.plant import PlantModelRC2
 from ..mpc_v2_internals.qp_optimiser import QpOptimiser, require_daqp
+from ..mpc_v2_internals.response_plant import HeatResponsePlant
 from ..mpc_v2_internals.smith import SmithPredictor
 from .io import MpcV2Diagnostics
 from .params import MpcV2Params
@@ -54,6 +55,7 @@ class ControllerSnapshot:
     rg_v_C: float | None
     last_t_s: float
     next_mpc_t_s: float
+    heat_response: bool = False
 
     @classmethod
     def from_mapping(cls, raw: Mapping[str, Any]) -> ControllerSnapshot | None:
@@ -88,6 +90,7 @@ class ControllerSnapshot:
                 rg_v_C=None if raw.get("rg_v_C") is None else float(raw["rg_v_C"]),
                 last_t_s=float(raw.get("last_t_s", 0.0)),
                 next_mpc_t_s=float(raw.get("next_mpc_t_s", -1.0)),
+                heat_response=raw.get("heat_response") is True,
             )
         except TypeError, ValueError, OverflowError:
             _LOGGER.warning("MPC v2 snapshot contains non-numeric data; ignoring")
@@ -148,7 +151,26 @@ class MpcV2Controller:
             )
         self.plant_fine = PlantModelRC2(mpc_params.plant, dt_s=mpc_params.plant_step_s)
         self.plant_coarse = PlantModelRC2(mpc_params.plant, dt_s=mpc_params.qp.step_s)
+        if (
+            mpc_params.response_heat_max is not None
+            and mpc_params.response_loss is not None
+        ):
+            self.plant_fine = HeatResponsePlant(
+                mpc_params.plant,
+                mpc_params.plant_step_s,
+                mpc_params.response_heat_max,
+                mpc_params.response_loss,
+            )
+            self.plant_coarse = HeatResponsePlant(
+                mpc_params.plant,
+                mpc_params.qp.step_s,
+                mpc_params.response_heat_max,
+                mpc_params.response_loss,
+            )
         self.kalman = KalmanObserver(self.plant_fine, mpc_params.kalman)
+        if isinstance(self.plant_fine, HeatResponsePlant):
+            # The second state is K/min, so temperature covariance is inappropriate.
+            self.kalman.Q[1, 1] = 1e-6
         # The Smith predictor replays the command history, which holds one
         # entry per MPC re-plan — its time base is the QP step, so it runs
         # on the coarse plant, not the fine observer plant.
@@ -192,6 +214,11 @@ class MpcV2Controller:
         if not self._initialised:
             T_rad_init = T_rad_C if T_rad_C is not None else T_room_C
             self.kalman.initialise(np.array([T_room_C, T_rad_init]))
+            if isinstance(self.plant_fine, HeatResponsePlant):
+                self.kalman.initialise(
+                    np.array([T_room_C, self._last_u * self.plant_fine.heat_max])
+                )
+                self.kalman.P[1, 1] = 1e-4
             self._next_mpc_t_s = t_s
             self._initialised = True
 
@@ -203,8 +230,15 @@ class MpcV2Controller:
             return self._last_u, self._diagnostics()
         self._last_t_s = t_s
 
+        if isinstance(self.plant_fine, HeatResponsePlant):
+            # Sensor/control calls need not follow the nominal 30-second cadence.
+            self.plant_fine.dt_min = min(dt_s, 600.0) / 60
+
         innovation = self.kalman.innovation(T_room_C, self._last_u, T_outdoor_C)
         x_hat = self.kalman.update(T_room_C, self._last_u, T_outdoor_C)
+        if isinstance(self.plant_fine, HeatResponsePlant):
+            x_hat[1] = max(0.0, min(1.5 * self.plant_fine.heat_max, x_hat[1]))
+            self.kalman.x_hat[1] = x_hat[1]
         self.dob.update(innovation, dt_s)
 
         # The governor runs behind the observer so it judges which setpoints
@@ -253,6 +287,7 @@ class MpcV2Controller:
             rg_v_C=self.governor.state(),
             last_t_s=self._last_t_s,
             next_mpc_t_s=self._next_mpc_t_s,
+            heat_response=isinstance(self.plant_fine, HeatResponsePlant),
         )
 
     def restore_snapshot(self, snap: ControllerSnapshot) -> None:
@@ -264,6 +299,8 @@ class MpcV2Controller:
         every subsequent Kalman update. Version gating lives in
         :meth:`ControllerSnapshot.from_mapping`.
         """
+        if snap.heat_response != isinstance(self.plant_fine, HeatResponsePlant):
+            return
         n = self.plant_fine.state_dim
         x_hat = np.asarray(snap.x_hat, dtype=float)
         seeded = x_hat.shape == (n,) and bool(np.all(np.isfinite(x_hat)))
@@ -305,11 +342,22 @@ class MpcV2Controller:
         if self._u_history:
             self._u_history[-1] = u
 
+    def update_heat_response(self, heat_max: float, loss: float) -> None:
+        """Update the heat scale without discarding the room and heat estimates."""
+        for plant in (self.plant_fine, self.plant_coarse):
+            if isinstance(plant, HeatResponsePlant):
+                plant.heat_max = heat_max
+                plant.loss = loss
+        self.params.response_heat_max = heat_max
+        self.params.response_loss = loss
+
     def _diagnostics(self) -> MpcV2Diagnostics:
+        adaptive = isinstance(self.plant_fine, HeatResponsePlant)
         return MpcV2Diagnostics(
             T_room_hat=float(self.kalman.x_hat[0]),
-            T_rad_hat=float(self.kalman.x_hat[1]),
+            T_rad_hat=None if adaptive else float(self.kalman.x_hat[1]),
             D_hat_K_per_min=self.dob.D_hat_K_per_min,
             tau_room_min=self.plant_fine.params.tau_room_min,
             coupling_rad_room=self.plant_fine.params.coupling_rad_room,
+            heat_rate_hat_K_min=float(self.kalman.x_hat[1]) if adaptive else None,
         )

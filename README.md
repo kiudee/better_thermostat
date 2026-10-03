@@ -1,5 +1,7 @@
 # Better Thermostat
 
+This fork adds [experimental MPC V2 valve-response learning and diagnostic plots](docs/valve-response/README.md). The feature is opt-in.
+
 [![Active installations](https://badge.t-haber.de/badge/better_thermostat?kill_cache=1)](https://github.com/KartoffelToby/better_thermostat/)
 [![GitHub issues](https://img.shields.io/github/issues/KartoffelToby/better_thermostat?style=for-the-badge)](https://github.com/KartoffelToby/better_thermostat/issues)
 [![Version](https://img.shields.io/github/v/release/KartoffelToby/better_thermostat?style=for-the-badge&label=Version&color=009688)](https://github.com/KartoffelToby/better_thermostat/releases)

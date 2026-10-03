@@ -41,6 +41,7 @@ from custom_components.better_thermostat.utils.calibration.tpi import (
     compute_tpi,
 )
 from custom_components.better_thermostat.utils.const import (
+    CONF_MPC_V2_LEARN_RESPONSE,
     CONF_MPC_V2_PLANT_PRESET,
     CONF_PROTECT_OVERHEATING,
     DEFAULT_CALIBRATION_MODE,
@@ -448,15 +449,25 @@ def _compute_mpc_v2_balance(self, entity_id: str):
         preset = MpcV2PlantPreset.AUTO
 
     v2_params = MpcV2Params(
+        learn_valve_response=(
+            advanced.get(CONF_MPC_V2_LEARN_RESPONSE) is True
+            and not is_multi_trv
+            and _supports_direct_valve_control(self, entity_id)
+        ),
         plant=make_plant_prior(
             heating_power=getattr(self, "heating_power", None),
             heat_loss_rate=getattr(self, "heat_loss_rate", None),
             preset=None if preset == MpcV2PlantPreset.AUTO else preset.value,
-        )
+        ),
     )
 
     try:
         mpc_v2_state = self.state_mgr.get_mpc_v2_live(mpc_key, v2_params)
+        if v2_params.learn_valve_response:
+            from .utils.response_learning import attach_response_collection
+
+            mpc_v2_state.response = attach_response_collection(self, entity_id)
+            mpc_v2_state.response_shared = True
         mpc_output, mpc_v2_state = compute_mpc_v2(
             MpcV2Input(
                 key=mpc_key,
@@ -469,6 +480,7 @@ def _compute_mpc_v2_balance(self, entity_id: str):
                 entity_id=entity_id,
                 outdoor_temp_C=_get_current_outdoor_temp(self),
                 max_opening_pct=max_opening_pct,
+                response_managed=mpc_v2_state.response_shared,
             ),
             v2_params,
             state=mpc_v2_state,

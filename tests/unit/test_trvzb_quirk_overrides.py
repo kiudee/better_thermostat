@@ -625,3 +625,12 @@ class TestExternalTemperatureWriteTheDeviceRefuses:
             await quirk.maybe_set_external_temperature(mock_self, "climate.trv1", 21.42)
             is False
         )
+
+
+@pytest.mark.asyncio
+async def test_closing_bump_respects_user_cap(writes):
+    mock_self, trv_state = _make_valve_self(last_pct=35)
+    trv_state.valve_max_opening = 35
+    await quirk.override_set_valve(mock_self, ENTITY, 20)
+    assert writes == [35]
+    await _settle(trv_state.extra.get("_trvzb_valve_bump_task"))
