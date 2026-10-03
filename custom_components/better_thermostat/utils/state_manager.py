@@ -450,6 +450,12 @@ class StateManager:
             if source.rsplit("|", 1)[-1] == entity_id:
                 learner.record_command(now, percent)
 
+    def invalidate_response_command(self, entity_id: str, now: float) -> None:
+        """End evidence when a device write may have been partially delivered."""
+        for source, learner in self._response_live.items():
+            if source.rsplit("|", 1)[-1] == entity_id:
+                learner.interrupt(now, "valve_command_uncertain")
+
     def _sync_mpc_v2_live(self) -> None:
         """Fold live MPC v2 controllers into the persistable snapshot.
 

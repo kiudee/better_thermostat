@@ -43,6 +43,13 @@ while observation-only operation is in use.
 - One shared physical-source learner across eco, comfort and manual targets.
   Target-specific MPC controller state remains separate.
 
+Sonoff's closing workaround records its temporary opening bump and delayed final
+command separately, after both opening/closing writes complete. A refused or
+partially delivered write interrupts learning until a successful command restores
+certainty. Delayed closes retry twice and stop when superseded or the thermostat
+unloads. `valve_delivery` reports command certainty and runtime failure counts;
+clear general controller errors do not establish reliable radio delivery.
+
 Each episode spans at least six hours and twelve genuine reports. Between reports,
 the model integrates every recorded valve command through radiator inertia and
 room heat loss. Commands may vary throughout an episode. Episodes have disjoint

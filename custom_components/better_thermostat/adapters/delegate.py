@@ -265,9 +265,18 @@ async def set_valve(self, entity_id, valve):
         if _override_set_valve is not None:
             ok = await _override_set_valve(self, entity_id, target_pct)
             if ok:
+                # A delayed quirk records its actual intermediate and final writes.
+                if (
+                    getattr(
+                        trv_state.model_quirks, "MANAGES_VALVE_COMMAND_TRACKING", False
+                    )
+                    is True
+                ):
+                    return True
                 try:
                     self.real_trvs[entity_id].last_valve_percent = int(target_pct)
                     self.real_trvs[entity_id].last_valve_method = "override"
+                    self.real_trvs[entity_id].valve_command_uncertain = False
                     _record_response_command(self, entity_id, target_pct)
                 except Exception:
                     _LOGGER.exception(
@@ -292,6 +301,7 @@ async def set_valve(self, entity_id, valve):
             try:
                 self.real_trvs[entity_id].last_valve_percent = int(target_pct)
                 self.real_trvs[entity_id].last_valve_method = "adapter"
+                self.real_trvs[entity_id].valve_command_uncertain = False
                 _record_response_command(self, entity_id, target_pct)
             except Exception as exc:
                 _LOGGER.debug(

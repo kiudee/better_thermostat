@@ -85,6 +85,8 @@ def attach_response_collection(host, entity_id):
             reason = "outdoor_unavailable"
         elif valve is None or valve.state in ("unavailable", "unknown"):
             reason = "valve_unavailable"
+        elif host.real_trvs[entity_id].valve_command_uncertain:
+            reason = "valve_command_uncertain"
         elif command is None:
             reason = "unknown_valve_command"
         elif getattr(host, "in_maintenance", False):
