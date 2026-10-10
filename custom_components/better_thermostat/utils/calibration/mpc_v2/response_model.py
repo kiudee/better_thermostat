@@ -48,6 +48,7 @@ def _design(
     inputs: list[list[float]],
     knots: list[float],
     loss: float,
+    radiator_lag_min: float = RADIATOR_LAG_MIN,
 ):
     """Integrate the linear thermal states exactly between input changes."""
     count = len(knots) + 2  # response increments, initial radiator heat, disturbance
@@ -70,8 +71,8 @@ def _design(
             dt = (end - previous) / 60
             _, opening, outdoor = inputs[index]
             er = math.exp(-loss * dt)
-            eh = math.exp(-dt / RADIATOR_LAG_MIN)
-            retained = (er - eh) / (1 / RADIATOR_LAG_MIN - loss)
+            eh = math.exp(-dt / radiator_lag_min)
+            retained = (er - eh) / (1 / radiator_lag_min - loss)
             sustained = (1 - er) / loss
             basis = np.zeros(count)
             basis[: len(knots)] = _basis(opening, knots)

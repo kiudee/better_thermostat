@@ -160,7 +160,9 @@ def compute_mpc_v2(
         if inp.applied_valve_pct is not None
         else state.last_percent
     )
-    if applied is not None:
+    if applied is not None and (
+        not inp.applied_input_managed or state.last_compute_ts == 0
+    ):
         applied_u = (
             applied / 100
             if curve is None
@@ -189,6 +191,8 @@ def compute_mpc_v2(
         T_target_C=inp.target_temp_C,
         T_outdoor_C=T_outdoor,
         T_rad_C=inp.trv_temp_C,
+        room_reported_at=inp.room_reported_at,
+        applied_input_managed=inp.applied_input_managed,
     )
 
     percent_int = round(max(0.0, min(1.0, u)) * 100.0)
@@ -211,7 +215,7 @@ def compute_mpc_v2(
 
     # Feed the actually-applied (possibly capped) fraction back so the observer
     # and rate limiter track the real valve input, not the uncapped request.
-    if state.controller is not None:
+    if state.controller is not None and not inp.applied_input_managed:
         actual_u = (
             percent_int / 100
             if curve is None

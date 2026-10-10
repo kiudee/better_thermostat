@@ -57,6 +57,22 @@ class PlantModelRC2:
         """Number of state variables (``T_room`` and ``T_rad``)."""
         return 2
 
+    def continuous_dynamics(
+        self, u: float, T_outdoor_C: float
+    ) -> tuple[FloatArray, FloatArray]:
+        """Return per-minute dynamics for a held, acknowledged valve command."""
+        p = self.params
+        gain = p.gain_heater * max(0.0, min(1.0, u))
+        return np.array(
+            [
+                [
+                    -(p.coupling_rad_room + 1) / p.tau_room_min,
+                    p.coupling_rad_room / p.tau_room_min,
+                ],
+                [1 / p.tau_rad_min, -(1 + gain) / p.tau_rad_min],
+            ]
+        ), np.array([T_outdoor_C / p.tau_room_min, gain * p.T_water_C / p.tau_rad_min])
+
     def discrete_step(
         self, x: FloatArray, u: float, T_outdoor_C: float, D_K_per_min: float = 0.0
     ) -> FloatArray:

@@ -446,12 +446,18 @@ class StateManager:
         self, entity_id: str, percent: float, now: float
     ) -> None:
         """Track successful valve writes between sparse sensor reports."""
+        for state in self._mpc_v2_live.values():
+            if state.actuator_id == entity_id and state.controller is not None:
+                state.controller.record_applied_u(now, percent / 100)
         for source, learner in self._response_live.items():
             if source.rsplit("|", 1)[-1] == entity_id:
                 learner.record_command(now, percent)
 
     def invalidate_response_command(self, entity_id: str, now: float) -> None:
         """End evidence when a device write may have been partially delivered."""
+        for state in self._mpc_v2_live.values():
+            if state.actuator_id == entity_id and state.controller is not None:
+                state.controller.mark_input_uncertain(now)
         for source, learner in self._response_live.items():
             if source.rsplit("|", 1)[-1] == entity_id:
                 learner.interrupt(now, "valve_command_uncertain")

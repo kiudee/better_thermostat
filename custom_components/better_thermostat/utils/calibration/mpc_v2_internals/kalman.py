@@ -15,12 +15,10 @@ cycle.
 Process noise on ``T_rad`` is intentionally larger than on ``T_room`` so
 the filter adapts quickly to radiator dynamics the model gets wrong.
 
-Each update propagates exactly one plant step (``plant_step_s``) regardless
-of the actual wall-clock spacing of control cycles. For the slow thermal
-plant this mis-weights the model dynamics between irregular cycles, but the
-measurement correction on every cycle keeps the room channel anchored; the
-controller additionally rejects sub-second repeat steps so the same
-measurement is never folded in twice within one control pass.
+The controller calls ``predict_elapsed`` with real elapsed time and
+``correct_report`` once per genuine sensor report. The combined ``update``
+method remains available for simulations that supply a new measurement at
+every fixed plant step.
 """
 
 from __future__ import annotations
@@ -113,6 +111,42 @@ class KalmanObserver:
         self.x_hat = x_pred + (K.flatten() * innovation)
         self.P = (np.eye(2) - K @ self.C) @ P_pred
         return self.x_hat.copy()
+
+    def predict_elapsed(
+        self, u: float, T_outdoor_C: float, dt_s: float, disturbance: float = 0.0
+    ) -> None:
+        """Predict elapsed time exactly without inventing sensor measurements.
+
+        The continuous process noise matches Q at the nominal plant cadence.
+        Exact state and covariance propagation makes extra polling harmless.
+        """
+        if dt_s <= 0:
+            return
+        matrix, forcing = self.plant.continuous_dynamics(u, T_outdoor_C)
+        forcing[0] += disturbance
+        eigenvalues, vectors = np.linalg.eig(matrix)
+        transition = (
+            vectors @ np.diag(np.exp(eigenvalues * dt_s / 60)) @ np.linalg.inv(vectors)
+        ).real
+        equilibrium = np.linalg.solve(matrix, -forcing)
+        self.x_hat = equilibrium + transition @ (self.x_hat - equilibrium)
+        noise_rate = self.Q / (self.plant.dt_s / 60)
+        # Stationary covariance solves A S + S A.T = -Q; then integrate noise.
+        operator = np.kron(matrix, np.eye(2)) + np.kron(np.eye(2), matrix)
+        stationary = np.linalg.solve(operator, -noise_rate.reshape(4)).reshape(2, 2)
+        process = stationary - transition @ stationary @ transition.T
+        self.P = transition @ self.P @ transition.T + process
+        self.P = (self.P + self.P.T) / 2
+
+    def correct_report(self, temperature: float) -> float:
+        """Assimilate one genuine report and return its pre-correction error."""
+        innovation = temperature - float(self.x_hat[0])
+        variance = max(float(self.P[0, 0] + self.R[0, 0]), 1e-12)
+        gain = self.P[:, 0] / variance
+        self.x_hat += gain * innovation
+        residual = np.eye(2) - gain[:, None] @ self.C
+        self.P = residual @ self.P @ residual.T + np.outer(gain, gain) * self.R[0, 0]
+        return innovation
 
     def innovation(self, y_meas: float, u: float, T_outdoor_C: float) -> float:
         """Pre-update residual — used by the disturbance observer."""

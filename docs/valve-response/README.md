@@ -41,7 +41,16 @@ while observation-only operation is in use.
 - Successful actuator commands at their write times, plus observed outdoor changes.
   These are commands, not independently measured physical valve positions.
 - One shared physical-source learner across eco, comfort and manual targets.
-  Target-specific MPC controller state remains separate.
+  The MPC room and radiator estimates now use the same target-independent scope.
+
+The controller predicts the actual elapsed time between completed valve writes,
+outdoor changes and genuine room reports. Repeated control calls do not turn a held
+reading into new evidence. Unchanged sensor heartbeats still count. Raw reports
+reach the observer and request a control cycle independently of BT's temperature
+debounce. Target changes replan immediately and clear accumulated target error,
+while keeping the physical heat estimate. Failed writes suspend disturbance
+learning over the affected interval. These timing corrections affect active MPC;
+the response curves described below remain observation-only.
 
 Sonoff's closing workaround records its temporary opening bump and delayed final
 command separately, after both opening/closing writes complete. A refused or
@@ -70,6 +79,27 @@ The latest heated period is withheld from curve fitting. Its first two intervals
 initialize those local terms, then later temperatures must be predicted better
 than both a no-heating model and the last known temperature. Unvisited or poorly
 identified openings remain unknown. Fitting runs in Home Assistant's executor.
+
+Version 4 adds a fallback for changing heating strength between periods. It shares
+a bounded valve shape, room-loss coefficient and radiator lag, while each period
+gets its own heat scale, initial retained heat and constant background term. It
+needs at least three heated training periods and a later heated validation period.
+At least two training periods must contain different sustained openings; one
+opening per day cannot distinguish valve shape from that day's heat supply.
+
+Shape, lag and loss are chosen using training data only. The validation period
+uses a prefix with at least five intervals and 30 heating minutes to estimate its
+local heat scale. The remaining tail must contain at least 45 minutes, including
+15 heating minutes, and predict within 0.15°C RMSE and 0.35°C maximum error, while
+beating flat-temperature and no-heating baselines. A cooling-only tail cannot
+validate valve response. Training limits remain 0.10°C RMSE and 0.35°C maximum
+error. Heat-supply changes within a period can still invalidate the fit.
+
+The card adds the latest supported relative shape and heat-scale range when such
+a batch passes. Relative response is normalized within the observed range; it
+does not establish hydraulic flow or full-flow saturation. Lag, deadzone and
+valve response can remain confounded. Openings with disagreement between plausible
+models stay blank. The absolute bands include heat-supply variation and may be wide.
 
 ## Silence, uncertainty and interruptions
 
@@ -107,11 +137,17 @@ periods are retained for 14 days. Heating periods take priority over cooling-onl
 periods. Completed periods survive restart; pending reports/commands do not.
 Accepted batches consume their contributing periods and cannot be counted again.
 
-Version 2 accepted summaries and counters are preserved when moving to version 3.
+Version 2 and 3 accepted summaries, periods and counters are preserved in version 4.
 Old target-specific v1 hold evidence is preserved for rollback, but is not promoted
 into new episode counts or confidence. Standalone v1 imports are bounded and
 archived. Duplicate/overlapping, expired and malformed episode records are rejected.
 No historical evidence is automatically injected into a running installation.
+
+Active observer snapshots now use a physical-source key and format version 2,
+including report identity and completed input. Old target-specific snapshots
+remain stored for rollback; they are not migrated into the new observer. The first
+run therefore starts a fresh physical estimate while retaining response-learning
+evidence. Restart cannot establish commands issued while Core was stopped.
 
 ## Private replay
 

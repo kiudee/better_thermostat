@@ -32,6 +32,7 @@ class MpcV2State:
     outdoor_fallback_logged: bool = False
     response: ValveResponseLearner = field(default_factory=ValveResponseLearner)
     response_shared: bool = False
+    actuator_id: str | None = None
 
 
 def _plant_signature_of(params: MpcV2Params) -> tuple[float, ...]:

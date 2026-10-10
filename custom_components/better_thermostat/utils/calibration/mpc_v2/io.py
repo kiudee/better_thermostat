@@ -33,6 +33,7 @@ class MpcV2Input:
     learning_valid: bool = True
     response_source: str | None = None
     response_managed: bool = False
+    applied_input_managed: bool = False
 
 
 @dataclass

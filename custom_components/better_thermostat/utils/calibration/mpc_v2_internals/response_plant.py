@@ -24,6 +24,16 @@ class HeatResponsePlant(PlantModelRC2):
         self.loss = loss
 
     @override
+    def continuous_dynamics(
+        self, u: float, T_outdoor_C: float
+    ) -> tuple[FloatArray, FloatArray]:
+        """Return the same heat-rate model at arbitrary observation intervals."""
+        tau = self.params.tau_rad_min
+        return np.array([[-self.loss, 1.0], [0.0, -1 / tau]]), np.array(
+            [self.loss * T_outdoor_C, self.heat_max * np.clip(u, 0, 1) / tau]
+        )
+
+    @override
     def linearised_AB(
         self, T_outdoor_C: float, T_rad_op_C: float
     ) -> tuple[FloatArray, FloatArray, FloatArray]:

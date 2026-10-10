@@ -47,7 +47,7 @@ def fit_response_request(
 class ValveResponseLearner:
     """Accumulate independent episodes; never count silence as a measurement."""
 
-    VERSION = 3
+    VERSION = 4
     GRID = GRID
     RETENTION_S = 14 * 86400.0
     MAX_EPISODES = 24
@@ -422,6 +422,24 @@ class ValveResponseLearner:
                 (e["validation_rmse"] for e in self.episodes), default=None
             ),
             "uncertainty_kind": "model_sensitivity_and_episode_range",
+            "supply_models": [
+                {
+                    k: e[k]
+                    for k in (
+                        "start",
+                        "end",
+                        "relative_heat",
+                        "supply_range",
+                        "radiator_lag_min",
+                        "validation_prefix_end",
+                        "validation_rmse",
+                        "validation_max_error",
+                        "train_rmse",
+                    )
+                }
+                for e in self.episodes
+                if e.get("model") == "variable_supply"
+            ],
         }
 
     def control_curve(self, prior_heat: float) -> None:
@@ -466,7 +484,7 @@ class ValveResponseLearner:
                 }
                 self.legacy = {"v": 1, "source": self.source, "samples": clean}
             return
-        if payload.get("v") not in (2, self.VERSION):
+        if payload.get("v") not in (2, 3, self.VERSION):
             return
         episodes = payload.get("episodes", [])
         for e in episodes[-self.MAX_EPISODES :] if isinstance(episodes, list) else []:
@@ -510,6 +528,36 @@ class ValveResponseLearner:
                     for x in self.episodes
                 ):
                     continue
+                supply: dict[str, Any] = {}
+                if e.get("model") == "variable_supply":
+                    relative = e["relative_heat"]
+                    gains = e["supply_range"]
+                    if (
+                        len(relative) != len(self.GRID)
+                        or any(
+                            v is not None and not (math.isfinite(v) and 0 <= v <= 1)
+                            for v in relative
+                        )
+                        or len(gains) != 2
+                        or not 0.003 <= gains[0] <= gains[1] <= 0.2
+                        or not 5 <= e["radiator_lag_min"] <= 45
+                        or not e["start"] < e["validation_prefix_end"] < e["end"]
+                        or not 0 <= e["validation_max_error"] <= 0.35
+                        or not 0 <= e["train_rmse"] <= 0.1
+                    ):
+                        continue
+                    supply = {
+                        k: e[k]
+                        for k in (
+                            "model",
+                            "relative_heat",
+                            "supply_range",
+                            "radiator_lag_min",
+                            "validation_prefix_end",
+                            "validation_max_error",
+                            "train_rmse",
+                        )
+                    }
                 self.episodes.append(
                     {
                         k: e[k]
@@ -526,6 +574,7 @@ class ValveResponseLearner:
                         )
                     }
                 )
+                self.episodes[-1].update(supply)
                 if e.get("validation_kind") == "separate_period":
                     self.episodes[-1]["validation_kind"] = "separate_period"
                     self.episodes[-1]["period_count"] = min(

@@ -31,6 +31,8 @@ class MpcResponseCard extends HTMLElement {
     const retained = pooled ? `<p>${d.retained_periods || 0} saved clean periods · ${Math.round(d.retained_heating_min || 0)} min of usable heating. Last fit: ${esc(d.last_fit_reason?.replaceAll('_', ' ') || 'waiting for evidence')}.</p>` : '';
     const delivery = Object.values(state?.attributes?.valve_delivery || {});
     const deliveryNotice = delivery.some(v => v.uncertain) ? '<p><strong>Valve command delivery is uncertain. The affected learning period is excluded.</strong></p>' : '';
+    const supply = d?.supply_models?.at(-1);
+    const supplyNotice = supply ? `<p><strong>Heating strength varies between periods.</strong> Latest fitted range: ${supply.supply_range.map(v => Number(v).toFixed(3)).join('–')} K/min. Candidate radiator lag: ${Number(supply.radiator_lag_min).toFixed(1)} min. Later heating prediction error: ${Number(supply.validation_rmse).toFixed(3)} °C RMSE.</p><p class="muted">The relative shape below is scaled to the largest observed opening. A value of 1 does not establish full water flow.</p><svg viewBox="0 0 620 200" role="img" aria-label="Relative valve heating response within the observed range"><text x="65" y="22">Relative heating response</text>${[0, .5, 1].map(v => `<line x1="65" x2="580" y1="${150-v*100}" y2="${150-v*100}" class="grid"/><text x="55" y="${154-v*100}" text-anchor="end">${v}</text>`).join('')}${supply.relative_heat.map((v,i) => finite(v) ? `<circle cx="${x(d.opening_pct[i])}" cy="${150-v*100}" r="4" fill="#369ac8"/>` : '').join('')}${[0,20,40,60,80,100].map(p => `<text x="${x(p)}" y="178" text-anchor="middle">${p}%</text>`).join('')}</svg>` : '';
     const countMax = Math.max(6, ...points.map(p=>p.n));
     let shapes = '';
     for (let i=0;i<=4;i++) {
@@ -61,7 +63,7 @@ class MpcResponseCard extends HTMLElement {
         ${total ? '' : '<text x="320" y="135" text-anchor="middle">No accepted heating evidence yet</text>'}
         <text x="65" y="285">${pooled ? 'Validated batches by opening' : (episodes ? 'Episode coverage by opening' : 'Independent holds per opening')}</text><text x="320" y="415" text-anchor="middle">Valve opening command</text>
       </svg>
-      <p><strong>Estimated effective saturation: ${finite(cap) ? `${cap}%` : 'unknown'}</strong> · ${total} ${unit}</p>${pending}${retained}${deliveryNotice}
+      <p><strong>Estimated effective saturation: ${finite(cap) ? `${cap}%` : 'unknown'}</strong> · ${total} ${unit}</p>${pending}${retained}${deliveryNotice}${supplyNotice}
       <p class="muted">${episodes ? 'Blue: fitted candidate response. Bands show model sensitivity and differences between episodes, not 95% confidence intervals. Empty ranges have no supported estimate. Candidates do not affect heating.' : 'Blue: observed median and pointwise 95% confidence intervals (at least six holds). Dashed: control curve including assumptions. Empty positions are unobserved.'} This is heating response, not measured water flow.</p>
       <p class="muted">${episodes ? 'No saturation claim is made during observation. Normal sensor silence adds no measurements; collection waits for a real report.' : 'Saturation means additional observed opening adds at most about 15% of full-opening heat within the uncertainty bounds.'} The configured cap is unchanged.</p>
     </ha-card>`;

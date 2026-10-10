@@ -164,7 +164,9 @@ def fit_short_periods(
             }
         )
     if not candidates:
-        return None, "inconsistent_or_unidentifiable_model"
+        from .response_supply import fit_variable_supply
+
+        return fit_variable_supply(periods)
     best = min(candidates, key=lambda c: c["error"])
     plausible = [
         c
