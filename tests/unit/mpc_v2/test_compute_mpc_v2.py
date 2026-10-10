@@ -435,16 +435,13 @@ def test_governor_uses_the_disturbance_estimate_of_the_current_cycle(
         seen.append(D_hat_K_per_min)
         return governor_update(D_hat_K_per_min=D_hat_K_per_min, **kwargs)
 
-    def _observe(innovation_K: float, dt_s: float) -> float:
-        controller.dob.D_hat_K_per_min = 0.05
-        return 0.05
-
-    controller.dob.D_hat_K_per_min = -99.0
     monkeypatch.setattr(controller.governor, "update", _record)
-    monkeypatch.setattr(controller.dob, "update", _observe)
-    controller.step(t_s=300.0, T_room_C=20.0, T_target_C=21.0, T_outdoor_C=5.0)
+    _, diag = controller.step(
+        t_s=300.0, T_room_C=20.5, T_target_C=21.0, T_outdoor_C=5.0
+    )
 
-    assert seen == [0.05]
+    assert seen == [diag.D_hat_K_per_min]
+    assert diag.D_hat_K_per_min > 0
 
 
 def test_malformed_snapshot_values_are_rejected(caplog) -> None:

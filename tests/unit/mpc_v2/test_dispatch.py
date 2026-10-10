@@ -249,3 +249,89 @@ def test_daqp_import_failure_warns_once_and_holds(monkeypatch, caplog) -> None:
     assert real_trvs["climate.x"].calibration_balance is None
     warnings = [r for r in caplog.records if "MPC v2 unavailable" in r.getMessage()]
     assert len(warnings) == 1
+
+
+async def test_single_valve_learning_receives_raw_reports_across_targets(hass):
+    from unittest.mock import Mock
+
+    from custom_components.better_thermostat.utils.state_manager import StateManager
+
+    eid = "climate.single"
+    trv = _trv_info(eid, current_temp=20.0, supports_valve=True)
+    trv.advanced["mpc_v2_learn_response"] = True
+    trv.last_valve_percent = 0
+    bt = _make_bt(real_trvs={eid: trv})
+    bt.sensor_entity_id = "sensor.room"
+    bt.weather_entity = "weather.home"
+    bt.hass = hass
+    bt.state_mgr = StateManager(hass, "response_test")
+    removers = []
+    bt.async_on_remove = removers.append
+    bt.schedule_save_state = Mock()
+    hass.states.async_set(eid, "heat")
+    hass.states.async_set("sensor.room", "19.5", {"unit_of_measurement": "°C"})
+    hass.states.async_set(
+        "weather.home", "cloudy", {"temperature": 8, "temperature_unit": "°C"}
+    )
+    result, supported = _compute_mpc_v2_balance(bt, eid)
+    assert result is not None and supported
+    learner = next(iter(bt.state_mgr._response_live.values()))
+    hass.states.async_set("sensor.room", "19.8", {"unit_of_measurement": "°C"})
+    await hass.async_block_till_done()
+    assert learner.reports[-1][1] == 19.8
+    assert bt.cur_temp == 19.5  # The learner bypasses BT's delayed acceptance.
+    bt.bt_target_temp = 19
+    _compute_mpc_v2_balance(bt, eid)
+    assert len(bt.state_mgr._mpc_v2_live) == 1
+    assert all(s.response is learner for s in bt.state_mgr._mpc_v2_live.values())
+    before = len(learner.reports)
+    hass.states.async_set("sensor.room", "19.8", {"unit_of_measurement": "°C"})
+    await hass.async_block_till_done()
+    assert len(learner.reports) == before + 1  # Unchanged-value heartbeat.
+    hass.states.async_set("sensor.room", "unavailable")
+    await hass.async_block_till_done()
+    assert not learner.reports
+    assert learner.status == "sensor_unavailable"
+    for remove in removers:
+        remove()
+
+
+async def test_controller_observes_actual_reports_before_delayed_bt_acceptance(
+    hass, freezer
+):
+    from unittest.mock import Mock
+
+    from custom_components.better_thermostat.utils.state_manager import StateManager
+    from custom_components.better_thermostat.utils.valve_commands import (
+        record_valve_command,
+    )
+
+    eid = "climate.physical"
+    trv = _trv_info(eid, current_temp=20, supports_valve=True)
+    trv.last_valve_percent = 0
+    bt = _make_bt(real_trvs={eid: trv})
+    bt.hass = hass
+    bt.sensor_entity_id = "sensor.room"
+    bt.weather_entity = "weather.home"
+    bt.state_mgr = StateManager(hass, "observation_test")
+    removers = []
+    bt.async_on_remove = removers.append
+    bt.schedule_save_state = Mock()
+    hass.states.async_set("sensor.room", "19.5", {"unit_of_measurement": "°C"})
+    hass.states.async_set(
+        "weather.home", "cloudy", {"temperature": 10, "temperature_unit": "°C"}
+    )
+    hass.states.async_set(eid, "heat")
+    _compute_mpc_v2_balance(bt, eid)
+    record_valve_command(bt, eid, 30, "override")
+    freezer.tick(300)
+    hass.states.async_set("sensor.room", "21.5", {"unit_of_measurement": "°C"})
+    await hass.async_block_till_done()
+    a, _ = _compute_mpc_v2_balance(bt, eid)
+    assert bt.cur_temp == 19.5
+    assert a.diagnostics.T_room_hat > 20.5
+    bt.bt_target_temp = 19
+    b, _ = _compute_mpc_v2_balance(bt, eid)
+    assert b.diagnostics.T_rad_hat == pytest.approx(a.diagnostics.T_rad_hat, abs=0.001)
+    for remove in removers:
+        remove()

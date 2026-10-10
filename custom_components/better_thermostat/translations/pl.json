@@ -40,12 +40,14 @@
           "valve_maintenance": "Jeżeli Twój termostat nie ma trybu konserwacji, możesz użyć tej opcji.",
           "calibration": "Rodzaj kalibracji, której chcesz użyć",
           "calibration_mode": "Tryb kalibracji",
-          "no_off_system_mode": "Jeśli Twój TRV nie obsługuje trybu wyłączenia, możesz go włączyć, aby zamiast tego używać temperatury docelowej 5°C"
+          "no_off_system_mode": "Jeśli Twój TRV nie obsługuje trybu wyłączenia, możesz go włączyć, aby zamiast tego używać temperatury docelowej 5°C",
+          "mpc_v2_learn_response": "MPC V2: learn valve heating response (experimental)"
         },
         "data_description": {
           "protect_overheating": "Niektóre TRV całkowicie zamykają zawór po osiągnięciu temperatury. Lub grzejnik ma dużo ciepła resztkowego. Może to spowodować przegrzanie. Ta opcja może temu zapobiec.",
           "calibration_mode": "Rodzaj sposobu obliczania kalibracji\n***Normalny***: W tym trybie wewnętrzny czujnik temperatury TRV jest zależny od zewnętrznego czujnika temperatury.\n***Agresywny***: W tym trybie wewnętrzny czujnik temperatury TRV jest ustalany przez zewnętrzny czujnik temperatury, ale jest ustawiony znacznie niżej/wyżej, aby uzyskać szybsze przyspieszenie.\n***AI Time Based***: W tym trybie wewnętrzny czujnik temperatury TRV jest ustalany przez zewnętrzny czujnik temperatury, ale wartość jest obliczana przez niestandardowy algorytm w celu ulepszenia wewnętrznego algorytmu TRV.",
-          "calibration": "Jak kalibracja powinna być zastosowana w TRV (temperatura docelowa lub przesunięcie)\n***Target Temperature Based***: Zastosuj kalibrację do temperatury docelowej.\n***Oparte na przesunięciu***: Zastosuj kalibrację do przesunięcia."
+          "calibration": "Jak kalibracja powinna być zastosowana w TRV (temperatura docelowa lub przesunięcie)\n***Target Temperature Based***: Zastosuj kalibrację do temperatury docelowej.\n***Oparte na przesunięciu***: Zastosuj kalibrację do przesunięcia.",
+          "mpc_v2_learn_response": "Single radiator with direct valve control only. Learns from settled, fresh reports without forced heating experiments. Your maximum opening remains enforced. Unobserved valve ranges remain uncertain."
         }
       },
       "confirm": {
@@ -110,12 +112,14 @@
           "valve_maintenance": "Jeżeli Twój termostat nie ma trybu konserwacji, możesz użyć tej opcji.",
           "calibration": "Rodzaj kalibracji, której chcesz użyć",
           "calibration_mode": "Tryb kalibracji",
-          "no_off_system_mode": "Jeśli Twój TRV nie obsługuje trybu wyłączenia, możesz go włączyć, aby zamiast tego używać temperatury docelowej 5°C"
+          "no_off_system_mode": "Jeśli Twój TRV nie obsługuje trybu wyłączenia, możesz go włączyć, aby zamiast tego używać temperatury docelowej 5°C",
+          "mpc_v2_learn_response": "MPC V2: learn valve heating response (experimental)"
         },
         "data_description": {
           "protect_overheating": "Niektóre TRV całkowicie zamykają zawór po osiągnięciu temperatury. Lub grzejnik ma dużo ciepła resztkowego. Może to spowodować przegrzanie. Ta opcja może temu zapobiec.",
           "calibration_mode": "Rodzaj sposobu obliczania kalibracji\n***Normalny***: W tym trybie wewnętrzny czujnik temperatury TRV jest zależny od zewnętrznego czujnika temperatury.\n***Agresywny***: W tym trybie wewnętrzny czujnik temperatury TRV jest ustalany przez zewnętrzny czujnik temperatury, ale jest ustawiony znacznie niżej/wyżej, aby uzyskać szybsze przyspieszenie.\n***AI Time Based***: W tym trybie wewnętrzny czujnik temperatury TRV jest ustalany przez zewnętrzny czujnik temperatury, ale wartość jest obliczana przez niestandardowy algorytm w celu ulepszenia wewnętrznego algorytmu TRV.",
-          "calibration": "Jak kalibracja powinna być zastosowana w TRV (temperatura docelowa lub przesunięcie)\n***Target Temperature Based***: Zastosuj kalibrację do temperatury docelowej.\n***Oparte na przesunięciu***: Zastosuj kalibrację do przesunięcia."
+          "calibration": "Jak kalibracja powinna być zastosowana w TRV (temperatura docelowa lub przesunięcie)\n***Target Temperature Based***: Zastosuj kalibrację do temperatury docelowej.\n***Oparte na przesunięciu***: Zastosuj kalibrację do przesunięcia.",
+          "mpc_v2_learn_response": "Single radiator with direct valve control only. Learns from settled, fresh reports without forced heating experiments. Your maximum opening remains enforced. Unobserved valve ranges remain uncertain."
         }
       }
     },

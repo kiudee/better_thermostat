@@ -41,6 +41,7 @@ from custom_components.better_thermostat.utils.calibration.tpi import (
     compute_tpi,
 )
 from custom_components.better_thermostat.utils.const import (
+    CONF_MPC_V2_LEARN_RESPONSE,
     CONF_MPC_V2_PLANT_PRESET,
     CONF_PROTECT_OVERHEATING,
     DEFAULT_CALIBRATION_MODE,
@@ -430,10 +431,9 @@ def _compute_mpc_v2_balance(self, entity_id: str):
         self, warmest_trv_id if is_multi_trv else entity_id
     )
 
-    if is_multi_trv:
-        mpc_key = build_mpc_group_key(self)
-    else:
-        mpc_key = build_mpc_key(self, entity_id)
+    from .utils.mpc_observation import attach_mpc_observation, physical_mpc_key
+
+    mpc_key = physical_mpc_key(self)
 
     # In a group all TRVs share one controller state, so the plant preset must
     # be group-stable: derive it from a deterministic representative (first TRV
@@ -448,20 +448,39 @@ def _compute_mpc_v2_balance(self, entity_id: str):
         preset = MpcV2PlantPreset.AUTO
 
     v2_params = MpcV2Params(
+        learn_valve_response=(
+            advanced.get(CONF_MPC_V2_LEARN_RESPONSE) is True
+            and not is_multi_trv
+            and _supports_direct_valve_control(self, entity_id)
+        ),
         plant=make_plant_prior(
             heating_power=getattr(self, "heating_power", None),
             heat_loss_rate=getattr(self, "heat_loss_rate", None),
             preset=None if preset == MpcV2PlantPreset.AUTO else preset.value,
-        )
+        ),
     )
 
     try:
         mpc_v2_state = self.state_mgr.get_mpc_v2_live(mpc_key, v2_params)
+        raw_temperature, reported_at, observation_managed = attach_mpc_observation(
+            self, mpc_key, mpc_v2_state
+        )
+        manages_applied_input = (
+            observation_managed
+            and not is_multi_trv
+            and _supports_direct_valve_control(self, entity_id)
+        )
+        mpc_v2_state.actuator_id = entity_id if manages_applied_input else None
+        if v2_params.learn_valve_response:
+            from .utils.response_learning import attach_response_collection
+
+            mpc_v2_state.response = attach_response_collection(self, entity_id)
+            mpc_v2_state.response_shared = True
         mpc_output, mpc_v2_state = compute_mpc_v2(
             MpcV2Input(
                 key=mpc_key,
                 target_temp_C=self.bt_target_temp,
-                current_temp_C=self.cur_temp,
+                current_temp_C=raw_temperature,
                 trv_temp_C=trv_state.current_temperature,
                 window_open=self.contact_open,
                 heating_allowed=True,
@@ -469,6 +488,12 @@ def _compute_mpc_v2_balance(self, entity_id: str):
                 entity_id=entity_id,
                 outdoor_temp_C=_get_current_outdoor_temp(self),
                 max_opening_pct=max_opening_pct,
+                response_managed=mpc_v2_state.response_shared,
+                room_reported_at=reported_at,
+                applied_input_managed=manages_applied_input,
+                applied_valve_pct=trv_state.last_valve_percent
+                if not is_multi_trv
+                else None,
             ),
             v2_params,
             state=mpc_v2_state,

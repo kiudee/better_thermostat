@@ -13,6 +13,8 @@ from homeassistant.const import STATE_UNAVAILABLE, STATE_UNKNOWN
 from homeassistant.exceptions import HomeAssistantError
 from homeassistant.helpers import entity_registry as er
 
+from ..utils.valve_commands import invalidate_valve_command, record_valve_command
+
 _LOGGER = logging.getLogger(__name__)
 
 VALVE_MAINTENANCE_INTERVAL_HOURS = 84
@@ -27,6 +29,8 @@ VALVE_MAINTENANCE_INTERVAL_HOURS = 84
 # device.
 _TRVZB_CLOSE_BUMP_OPEN_DELTA_PCT = 10
 _TRVZB_CLOSE_BUMP_DELAY_S = 5.0
+_TRVZB_VALVE_RETRY_DELAYS_S = (1.0, 2.0)
+MANAGES_VALVE_COMMAND_TRACKING = True
 
 
 def _cancel_pending_valve_bump(trv_state) -> bool:
@@ -300,7 +304,13 @@ async def maybe_set_sonoff_valve_percent(self, entity_id, percent: int) -> bool:
                 pct,
                 entity_id,
             )
+        if wrote:
+            record_valve_command(self, entity_id, pct, "override")
         return wrote
+    except asyncio.CancelledError:
+        # Cancellation can leave only one of the paired limits written.
+        invalidate_valve_command(self, entity_id)
+        raise
     except (
         HomeAssistantError,
         OSError,
@@ -320,6 +330,7 @@ async def maybe_set_sonoff_valve_percent(self, entity_id, percent: int) -> bool:
             entity_id,
             ex,
         )
+        invalidate_valve_command(self, entity_id)
         return False
 
 
@@ -357,7 +368,11 @@ async def override_set_valve(self, entity_id, percent: int):
         # Only apply workaround when closing further, and only when the motor
         # was not already driven open by a bump whose write is still due.
         if target_pct < last_pct and not bump_pending:
-            bump_pct = min(100, int(last_pct) + _TRVZB_CLOSE_BUMP_OPEN_DELTA_PCT)
+            bump_pct = min(
+                100,
+                int(trv_state.valve_max_opening),
+                int(last_pct) + _TRVZB_CLOSE_BUMP_OPEN_DELTA_PCT,
+            )
 
             # If we can't "bump open", fall back to direct set.
             ok_bump = await maybe_set_sonoff_valve_percent(self, entity_id, bump_pct)
@@ -376,7 +391,15 @@ async def override_set_valve(self, entity_id, percent: int):
                         int(cur_state.extra.get("_trvzb_valve_bump_seq", 0)) != seq
                     ):
                         return
-                    await maybe_set_sonoff_valve_percent(self, entity_id, target_pct)
+                    for delay in (0.0, *_TRVZB_VALVE_RETRY_DELAYS_S):
+                        if delay:
+                            await asyncio.sleep(delay)
+                        if int(cur_state.extra.get("_trvzb_valve_bump_seq", 0)) != seq:
+                            return
+                        if await maybe_set_sonoff_valve_percent(
+                            self, entity_id, target_pct
+                        ):
+                            return
                 except asyncio.CancelledError:
                     return
                 except (RuntimeError, ValueError, KeyError) as ex:
@@ -386,11 +409,12 @@ async def override_set_valve(self, entity_id, percent: int):
                         ex,
                     )
 
-            trv_state.extra["_trvzb_valve_bump_task"] = (
-                self.hass.async_create_background_task(
-                    _delayed_set(), name=f"bt_trvzb_valve_bump_{entity_id}"
-                )
-            )
+            name = f"bt_trvzb_valve_bump_{entity_id}"
+            if callable(getattr(type(self), "_spawn_owned", None)):
+                task = self._spawn_owned(_delayed_set(), name=name)
+            else:
+                task = self.hass.async_create_background_task(_delayed_set(), name=name)
+            trv_state.extra["_trvzb_valve_bump_task"] = task
             return True
 
         # Opening, unchanged, or a close following a bump that has not run yet:

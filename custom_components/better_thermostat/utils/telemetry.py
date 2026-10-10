@@ -244,6 +244,7 @@ _MPC_V2_FIELDS: tuple[tuple[str, str, int], ...] = (
     ("tau_room_min", "mpc_v2_tau_room_min", 1),
     ("coupling_rad_room", "mpc_v2_coupling_rad_room", 3),
     ("group_valve_pct", "mpc_v2_group_valve_pct", 1),
+    ("heat_rate_hat_K_min", "mpc_v2_heat_rate_hat_K_min", 5),
 )
 
 
@@ -277,5 +278,11 @@ def collect_mpc_v2_debug_attrs(bt: TelemetrySource) -> dict[str, Any]:
     for src_key, dst_key, decimals in _MPC_V2_FIELDS:
         if (value := _to_float(debug.get(src_key))) is not None:
             out[dst_key] = round(value, decimals)
+
+    curve = debug.get("response_curve")
+    if isinstance(curve, dict):
+        out["mpc_v2_response_curve"] = curve
+        out["mpc_v2_response_status"] = curve.get("status")
+        out["mpc_v2_saturation_pct"] = curve.get("saturation_pct")
 
     return out

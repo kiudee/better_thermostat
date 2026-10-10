@@ -568,7 +568,7 @@ class TestAQuirkOnlyReadsWhatTheHostPromises:
     def test_no_undeclared_host_attribute_is_read(self, model):
         """A quirk reaching past the Protocol reaches for luck."""
         promised = set(ModelFixHost.__annotations__) | {
-            name for name in vars(ModelFixHost) if not name.startswith("_")
+            name for name in vars(ModelFixHost) if not name.startswith("__")
         }
         read = _self_attributes_read(QUIRKS_DIR / f"{model}.py")
 

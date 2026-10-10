@@ -40,12 +40,14 @@
           "valve_maintenance": "Se il tuo termostato non ha una modalità di manutenzione propria, puoi usare questa",
           "calibration": "Tipo di calibrazione",
           "calibration_mode": "Modalità di calibrazione",
-          "no_off_system_mode": "Se il tuo TRV non può gestire la modalità 'off', puoi abilitare questa opzione per usare 5°C come temperatura target"
+          "no_off_system_mode": "Se il tuo TRV non può gestire la modalità 'off', puoi abilitare questa opzione per usare 5°C come temperatura target",
+          "mpc_v2_learn_response": "MPC V2: learn valve heating response (experimental)"
         },
         "data_description": {
           "protect_overheating": "Alcuni TRV non chiudono completamente la valvola quando si raggiunge la temperatura. Oppure il radiatore mantiene molto calore residuo. Questa opzione può evitare il surriscaldamento.",
           "calibration_mode": "Modalità di calcolo della calibrazione\n***Normale***: Il sensore interno di temperatura del TRV è corretto da quello esterno.\n***Aggressiva***: Il sensore interno del TRV è corretto da quello esterno ma impostato molto più basso/alto per ottenere una risposta più rapida.\n***Basata sul tempo AI***: Il sensore interno del TRV è corretto da quello esterno, ma un algoritmo personalizzato calcola il valore per migliorare l’algoritmo interno del TRV.\n***MPC Predictive (Beta)***: Utilizza il controllore predittivo MPC per derivare un'apertura della valvola e convertirla in offset o setpoint quando il controllo diretto della valvola non è disponibile.\n***PID Controller***: Utilizza un controllore PID per regolare dinamicamente la posizione della valvola in base all'errore di temperatura, al termine proporzionale, all'accumulo integrale e alla previsione derivata.\n***TPI Controller***: Utilizza un controllore Proporzionale Integrale Temporale per un controllo della temperatura stabile e preciso nel tempo.",
-          "calibration": "Come deve essere applicata la calibrazione sul TRV (temperatura target o offset)\n***Basata sulla temperatura target***: Applica la calibrazione alla temperatura impostata.\n***Basata su offset***: Applica la calibrazione come offset."
+          "calibration": "Come deve essere applicata la calibrazione sul TRV (temperatura target o offset)\n***Basata sulla temperatura target***: Applica la calibrazione alla temperatura impostata.\n***Basata su offset***: Applica la calibrazione come offset.",
+          "mpc_v2_learn_response": "Single radiator with direct valve control only. Learns from settled, fresh reports without forced heating experiments. Your maximum opening remains enforced. Unobserved valve ranges remain uncertain."
         }
       },
       "confirm": {
@@ -110,12 +112,14 @@
           "valve_maintenance": "Se il tuo termostato non ha una modalità di manutenzione propria, puoi usare questa",
           "calibration": "Tipo di calibrazione che vuoi usare",
           "calibration_mode": "Modalità di calibrazione",
-          "no_off_system_mode": "Se il tuo TRV non può gestire la modalità 'off', puoi abilitare questa opzione per usare 5°C come temperatura target"
+          "no_off_system_mode": "Se il tuo TRV non può gestire la modalità 'off', puoi abilitare questa opzione per usare 5°C come temperatura target",
+          "mpc_v2_learn_response": "MPC V2: learn valve heating response (experimental)"
         },
         "data_description": {
           "protect_overheating": "Alcuni TRV non chiudono completamente la valvola quando si raggiunge la temperatura. Oppure il radiatore mantiene molto calore residuo. Questa opzione può evitare il surriscaldamento.",
           "calibration_mode": "Modalità di calcolo della calibrazione\n***Normale***: Il sensore interno di temperatura del TRV è corretto da quello esterno.\n***Aggressiva***: Il sensore interno del TRV è corretto da quello esterno ma impostato molto più basso/alto per ottenere una risposta più rapida.\n***Basata sul tempo AI***: Il sensore interno del TRV è corretto da quello esterno, ma un algoritmo personalizzato calcola il valore per migliorare l’algoritmo interno del TRV.\n***MPC Predictive (Beta)***: Utilizza il controllore predittivo MPC per derivare un'apertura della valvola e convertirla in offset o setpoint quando il controllo diretto della valvola non è disponibile.\n***PID Controller***: Utilizza un controllore PID per regolare dinamicamente la posizione della valvola in base all'errore di temperatura, al termine proporzionale, all'accumulo integrale e alla previsione derivata.\n***TPI Controller***: Utilizza un controllore Proporzionale Integrale Temporale per un controllo della temperatura stabile e preciso nel tempo.",
-          "calibration": "Come deve essere applicata la calibrazione sul TRV (temperatura target o offset)\n***Basata sulla temperatura target***: Applica la calibrazione alla temperatura impostata.\n***Basata su offset***: Applica la calibrazione come offset."
+          "calibration": "Come deve essere applicata la calibrazione sul TRV (temperatura target o offset)\n***Basata sulla temperatura target***: Applica la calibrazione alla temperatura impostata.\n***Basata su offset***: Applica la calibrazione come offset.",
+          "mpc_v2_learn_response": "Single radiator with direct valve control only. Learns from settled, fresh reports without forced heating experiments. Your maximum opening remains enforced. Unobserved valve ranges remain uncertain."
         }
       }
     },

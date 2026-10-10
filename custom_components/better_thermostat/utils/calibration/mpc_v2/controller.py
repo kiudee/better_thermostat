@@ -16,6 +16,7 @@ from ..mpc_v2_internals.governor import ScalarReferenceGovernor
 from ..mpc_v2_internals.kalman import KalmanObserver
 from ..mpc_v2_internals.plant import PlantModelRC2
 from ..mpc_v2_internals.qp_optimiser import QpOptimiser, require_daqp
+from ..mpc_v2_internals.response_plant import HeatResponsePlant
 from ..mpc_v2_internals.smith import SmithPredictor
 from .io import MpcV2Diagnostics
 from .params import MpcV2Params
@@ -25,7 +26,7 @@ _LOGGER = logging.getLogger(__name__)
 # Snapshot format version. Bump when adding/renaming persisted fields so
 # restore_snapshot can refuse payloads from a future Better Thermostat
 # release. Pre-versioning snapshots are treated as version 0.
-SNAPSHOT_VERSION = 1
+SNAPSHOT_VERSION = 2
 
 # Steps arriving closer together than this carry no new information: in a
 # multi-TRV group every TRV dispatch steps the same shared controller within
@@ -54,6 +55,12 @@ class ControllerSnapshot:
     rg_v_C: float | None
     last_t_s: float
     next_mpc_t_s: float
+    heat_response: bool = False
+    last_reported_at: float | None = None
+    applied_u: float | None = None
+    outdoor_C: float | None = None
+    target_C: float | None = None
+    input_uncertain: bool = False
 
     @classmethod
     def from_mapping(cls, raw: Mapping[str, Any]) -> ControllerSnapshot | None:
@@ -88,6 +95,20 @@ class ControllerSnapshot:
                 rg_v_C=None if raw.get("rg_v_C") is None else float(raw["rg_v_C"]),
                 last_t_s=float(raw.get("last_t_s", 0.0)),
                 next_mpc_t_s=float(raw.get("next_mpc_t_s", -1.0)),
+                heat_response=raw.get("heat_response") is True,
+                last_reported_at=None
+                if raw.get("last_reported_at") is None
+                else float(raw["last_reported_at"]),
+                applied_u=None
+                if raw.get("applied_u") is None
+                else float(raw["applied_u"]),
+                outdoor_C=None
+                if raw.get("outdoor_C") is None
+                else float(raw["outdoor_C"]),
+                target_C=None
+                if raw.get("target_C") is None
+                else float(raw["target_C"]),
+                input_uncertain=raw.get("input_uncertain") is True,
             )
         except TypeError, ValueError, OverflowError:
             _LOGGER.warning("MPC v2 snapshot contains non-numeric data; ignoring")
@@ -102,6 +123,16 @@ class ControllerSnapshot:
             snapshot.last_t_s,
             snapshot.next_mpc_t_s,
             *([] if snapshot.rg_v_C is None else [snapshot.rg_v_C]),
+            *(
+                v
+                for v in (
+                    snapshot.last_reported_at,
+                    snapshot.applied_u,
+                    snapshot.outdoor_C,
+                    snapshot.target_C,
+                )
+                if v is not None
+            ),
         ]
         if not all(math.isfinite(x) for x in numbers):
             _LOGGER.warning("MPC v2 snapshot contains non-finite data; ignoring")
@@ -148,7 +179,26 @@ class MpcV2Controller:
             )
         self.plant_fine = PlantModelRC2(mpc_params.plant, dt_s=mpc_params.plant_step_s)
         self.plant_coarse = PlantModelRC2(mpc_params.plant, dt_s=mpc_params.qp.step_s)
+        if (
+            mpc_params.response_heat_max is not None
+            and mpc_params.response_loss is not None
+        ):
+            self.plant_fine = HeatResponsePlant(
+                mpc_params.plant,
+                mpc_params.plant_step_s,
+                mpc_params.response_heat_max,
+                mpc_params.response_loss,
+            )
+            self.plant_coarse = HeatResponsePlant(
+                mpc_params.plant,
+                mpc_params.qp.step_s,
+                mpc_params.response_heat_max,
+                mpc_params.response_loss,
+            )
         self.kalman = KalmanObserver(self.plant_fine, mpc_params.kalman)
+        if isinstance(self.plant_fine, HeatResponsePlant):
+            # The second state is K/min, so temperature covariance is inappropriate.
+            self.kalman.Q[1, 1] = 1e-6
         # The Smith predictor replays the command history, which holds one
         # entry per MPC re-plan — its time base is the QP step, so it runs
         # on the coarse plant, not the fine observer plant.
@@ -162,6 +212,103 @@ class MpcV2Controller:
         self._last_t_s: float = 0.0
         self._next_mpc_t_s: float = -1.0
         self._initialised: bool = False
+        self._last_reported_at: float | None = None
+        self._applied_u: float = 0.0
+        self._outdoor_C: float | None = None
+        self._replan_requested = False
+        self._last_control_t_s: float | None = None
+        self._target_C: float | None = None
+        self._input_uncertain = False
+        self._disturbance_interval_valid = True
+
+    def _predict_to(self, timestamp: float) -> None:
+        if not self._initialised or timestamp <= self._last_t_s:
+            return
+        self.kalman.predict_elapsed(
+            self._applied_u,
+            self._outdoor_C if self._outdoor_C is not None else 10.0,
+            timestamp - self._last_t_s,
+            self.dob.D_hat_K_per_min,
+        )
+        self._last_t_s = timestamp
+
+    def observe_report(
+        self, timestamp: float, temperature: float, *, learn_disturbance: bool = True
+    ) -> None:
+        """Correct once per ordered sensor report, independently of control ticks."""
+        if (
+            not self._initialised
+            # HA can deliver a sensor event just after a concurrent valve write.
+            or timestamp < self._last_t_s - MIN_STEP_DT_S
+            or (
+                self._last_reported_at is not None
+                and timestamp <= self._last_reported_at
+            )
+            or not math.isfinite(temperature)
+            or not math.isfinite(timestamp)
+        ):
+            return
+        self._predict_to(timestamp)
+        innovation = self.kalman.correct_report(temperature)
+        if (
+            learn_disturbance
+            and self._last_reported_at is not None
+            and self._disturbance_interval_valid
+        ):
+            dt_s = timestamp - self._last_reported_at
+            if dt_s >= MIN_STEP_DT_S:
+                # Predictions already include D, so learn its residual correction.
+                correction = (
+                    (1 - math.exp(-dt_s / max(self.params.dob.tau_s, 1e-6)))
+                    * innovation
+                    / (dt_s / 60)
+                )
+                self.dob.D_hat_K_per_min = max(
+                    -0.1, min(0.1, self.dob.D_hat_K_per_min + correction)
+                )
+        self._last_reported_at = timestamp
+        self._disturbance_interval_valid = (
+            learn_disturbance and not self._input_uncertain
+        )
+        self._replan_requested |= abs(innovation) >= 0.1
+
+    def record_applied_u(self, timestamp: float, u: float) -> None:
+        """Change the model input at the completed write, including short bumps."""
+        if (
+            not math.isfinite(timestamp)
+            or not math.isfinite(u)
+            or timestamp < self._last_t_s
+        ):
+            return
+        self._predict_to(timestamp)
+        # A temporary closing bump is physical input, not a new heating request.
+        self._applied_u = max(0.0, min(1.0, u))
+        if self._u_history:
+            self._u_history[-1] = self._applied_u
+        self._input_uncertain = False
+
+    def mark_input_uncertain(self, timestamp: float) -> None:
+        """Keep the last acknowledged input but stop learning from this interval."""
+        if not math.isfinite(timestamp) or timestamp < self._last_t_s:
+            return
+        self._predict_to(timestamp)
+        if not self._input_uncertain:
+            self.kalman.P[1, 1] += (
+                0.001 if isinstance(self.plant_fine, HeatResponsePlant) else 4.0
+            )
+        self._input_uncertain = True
+        self._disturbance_interval_valid = False
+
+    def record_outdoor(self, timestamp: float, temperature: float) -> None:
+        """Integrate the old outdoor input before adopting its new value."""
+        if (
+            not math.isfinite(timestamp)
+            or not math.isfinite(temperature)
+            or timestamp < self._last_t_s
+        ):
+            return
+        self._predict_to(timestamp)
+        self._outdoor_C = temperature
 
     def step(
         self,
@@ -170,6 +317,8 @@ class MpcV2Controller:
         T_target_C: float,
         T_outdoor_C: float,
         T_rad_C: float | None = None,
+        room_reported_at: float | None = None,
+        applied_input_managed: bool = False,
     ) -> tuple[float, MpcV2Diagnostics]:
         """Run one control cycle. Returns (valve_fraction, diagnostics).
 
@@ -188,36 +337,72 @@ class MpcV2Controller:
             Measured radiator temperature. Used only to seed the initial
             Kalman estimate on the very first cycle (falling back to
             ``T_room_C`` when ``None``); ignored on every subsequent cycle.
+        room_reported_at : float | None, optional
+            Actual report time; omitted only for callers providing a new reading
+            on every call. Repeated timestamps never add measurement evidence.
+        applied_input_managed : bool
+            True when completed device writes call :meth:`record_applied_u`.
         """
+        report_time = t_s if room_reported_at is None else room_reported_at
+        if self._initialised and t_s < self._last_t_s:
+            return self._last_u, self._diagnostics()
+        target_changed = self._target_C != T_target_C
+        if target_changed:
+            self.optimiser.reset_integral()
+            self._replan_requested = True
+            self._target_C = T_target_C
+        if (
+            self._last_control_t_s is not None
+            and t_s - self._last_control_t_s < MIN_STEP_DT_S
+            and not self._replan_requested
+        ):
+            return self._last_u, self._diagnostics()
         if not self._initialised:
             T_rad_init = T_rad_C if T_rad_C is not None else T_room_C
             self.kalman.initialise(np.array([T_room_C, T_rad_init]))
+            if isinstance(self.plant_fine, HeatResponsePlant):
+                self.kalman.initialise(
+                    np.array([T_room_C, self._last_u * self.plant_fine.heat_max])
+                )
+                self.kalman.P[1, 1] = 1e-4
             self._next_mpc_t_s = t_s
             self._initialised = True
-
-        dt_s = t_s - self._last_t_s if self._last_t_s > 0 else self.params.plant_step_s
-        if self._last_t_s > 0 and dt_s < MIN_STEP_DT_S:
-            # Forward-only: a non-positive dt_s (backward time jump) or a step
-            # below the minimum reuses the previous state and must NOT advance
-            # _last_t_s, otherwise a stale timestamp would reach dob.update.
-            return self._last_u, self._diagnostics()
-        self._last_t_s = t_s
-
-        innovation = self.kalman.innovation(T_room_C, self._last_u, T_outdoor_C)
-        x_hat = self.kalman.update(T_room_C, self._last_u, T_outdoor_C)
-        self.dob.update(innovation, dt_s)
+            self._last_t_s = t_s
+            self._last_reported_at = min(report_time, t_s)
+            self._outdoor_C = T_outdoor_C
+        elif math.isfinite(report_time) and report_time <= t_s:
+            self.observe_report(report_time, T_room_C)
+        self._predict_to(t_s)
+        self._outdoor_C = T_outdoor_C
+        control_dt = (
+            0.0 if self._last_control_t_s is None else t_s - self._last_control_t_s
+        )
+        self._last_control_t_s = t_s
+        x_hat = self.kalman.x_hat.copy()
+        if isinstance(self.plant_fine, HeatResponsePlant):
+            x_hat[1] = max(0.0, min(1.5 * self.plant_fine.heat_max, x_hat[1]))
+            self.kalman.x_hat[1] = x_hat[1]
 
         # The governor runs behind the observer so it judges which setpoints
         # are reachable on the same disturbance estimate the QP plans with.
         sp_for_opt = self.governor.update(
             T_sp=T_target_C,
             T_outdoor_C=T_outdoor_C,
-            T_room_now=T_room_C,
+            T_room_now=float(x_hat[0]),
             D_hat_K_per_min=self.dob.D_hat_K_per_min,
         )
+        # Accumulate elapsed time once, even when a report causes an early solve.
+        if not target_changed and not self._input_uncertain:
+            self.optimiser.update_integral(
+                T_room=float(x_hat[0]),
+                T_sp=sp_for_opt,
+                u_applied=self._applied_u,
+                dt_s=control_dt,
+            )
 
-        if t_s < self._next_mpc_t_s:
+        if t_s < self._next_mpc_t_s and not self._replan_requested:
             return self._last_u, self._diagnostics()
+        self._replan_requested = False
 
         plant_delay_s = self.params.plant.valve_command_delay_s
         x_pred = self.smith.predict(
@@ -228,13 +413,12 @@ class MpcV2Controller:
             x_pred=x_pred,
             T_sp=sp_for_opt,
             T_outdoor_C=T_outdoor_C,
-            u_last=self._last_u,
+            u_last=self._applied_u,
             D_hat_K_per_min=self.dob.D_hat_K_per_min,
         )
-        self.optimiser.update_integral(
-            T_room=T_room_C, T_sp=sp_for_opt, u_applied=u, dt_s=self.params.qp.step_s
-        )
         self._last_u = u
+        if not applied_input_managed:
+            self._applied_u = u
         self._u_history.append(u)
         self._next_mpc_t_s = t_s + self.params.qp.step_s
 
@@ -253,6 +437,12 @@ class MpcV2Controller:
             rg_v_C=self.governor.state(),
             last_t_s=self._last_t_s,
             next_mpc_t_s=self._next_mpc_t_s,
+            heat_response=isinstance(self.plant_fine, HeatResponsePlant),
+            last_reported_at=self._last_reported_at,
+            applied_u=self._applied_u,
+            outdoor_C=self._outdoor_C,
+            target_C=self._target_C,
+            input_uncertain=self._input_uncertain,
         )
 
     def restore_snapshot(self, snap: ControllerSnapshot) -> None:
@@ -264,6 +454,8 @@ class MpcV2Controller:
         every subsequent Kalman update. Version gating lives in
         :meth:`ControllerSnapshot.from_mapping`.
         """
+        if snap.heat_response != isinstance(self.plant_fine, HeatResponsePlant):
+            return
         n = self.plant_fine.state_dim
         x_hat = np.asarray(snap.x_hat, dtype=float)
         seeded = x_hat.shape == (n,) and bool(np.all(np.isfinite(x_hat)))
@@ -276,6 +468,13 @@ class MpcV2Controller:
         self.dob.D_hat_K_per_min = snap.D_hat_K_per_min
         self.optimiser.e_integral_K_min = snap.e_integral_K_min
         self._last_u = snap.last_u
+        self._applied_u = snap.last_u if snap.applied_u is None else snap.applied_u
+        self._last_reported_at = snap.last_reported_at
+        self._outdoor_C = snap.outdoor_C
+        self._target_C = snap.target_C
+        self._input_uncertain = snap.input_uncertain
+        # Commands issued while Core was stopped are not observable.
+        self._disturbance_interval_valid = False
         for u in snap.u_history:
             self._u_history.append(u)
         self.governor.restore(snap.rg_v_C)
@@ -302,14 +501,26 @@ class MpcV2Controller:
         """
         u = max(0.0, min(1.0, u))
         self._last_u = u
+        self._applied_u = u
         if self._u_history:
             self._u_history[-1] = u
 
+    def update_heat_response(self, heat_max: float, loss: float) -> None:
+        """Update the heat scale without discarding the room and heat estimates."""
+        for plant in (self.plant_fine, self.plant_coarse):
+            if isinstance(plant, HeatResponsePlant):
+                plant.heat_max = heat_max
+                plant.loss = loss
+        self.params.response_heat_max = heat_max
+        self.params.response_loss = loss
+
     def _diagnostics(self) -> MpcV2Diagnostics:
+        adaptive = isinstance(self.plant_fine, HeatResponsePlant)
         return MpcV2Diagnostics(
             T_room_hat=float(self.kalman.x_hat[0]),
-            T_rad_hat=float(self.kalman.x_hat[1]),
+            T_rad_hat=None if adaptive else float(self.kalman.x_hat[1]),
             D_hat_K_per_min=self.dob.D_hat_K_per_min,
             tau_room_min=self.plant_fine.params.tau_room_min,
             coupling_rad_room=self.plant_fine.params.coupling_rad_room,
+            heat_rate_hat_K_min=float(self.kalman.x_hat[1]) if adaptive else None,
         )

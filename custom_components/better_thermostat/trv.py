@@ -115,6 +115,9 @@ class Trv:
     calibration_write_generation: int = 0
     last_valve_percent: float | None = None
     last_valve_method: str | None = None
+    valve_command_uncertain: bool = False
+    valve_write_failures: int = 0
+    last_valve_write_failure: float | None = None
     # HVAC modes already annunciated as unsupported, so the control loop
     # reports each one once instead of on every cycle. Cleared whenever the
     # device reports a different mode list.

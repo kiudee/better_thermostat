@@ -81,6 +81,10 @@ class ModelFixHost(Protocol):
     context: Any
     real_trvs: Mapping[str, _TrvLike]
 
+    def _spawn_owned(self, target: Coroutine[Any, Any, Any], *, name: str) -> Any:
+        """Schedule a write that is cancelled when the thermostat unloads."""
+        ...
+
     @property
     def hass(self) -> _HassLike:
         """Home Assistant core the BetterThermostat instance is attached to."""
