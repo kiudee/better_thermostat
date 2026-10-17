@@ -43,6 +43,7 @@ def _plant_signature_of(params: MpcV2Params) -> tuple[float, ...]:
         round(p.gain_heater, 4),
         round(p.coupling_rad_room, 4),
         1.0 if params.response_heat_max is not None else 0.0,
+        *(params.flow_prior.signature if params.flow_prior else (0.0, 0.0, 0.0)),
     )
 
 
@@ -64,6 +65,8 @@ def plant_signature_differs(old: tuple[float, ...], new: tuple[float, ...]) -> b
     crosses the tolerance and rebuilds exactly once.
     """
     if len(old) != len(new):
+        return True
+    if old[5:] != new[5:]:
         return True
     return any(
         abs(n - o) > _SIGNATURE_REL_TOL * max(abs(o), 1e-9) for o, n in zip(old, new)

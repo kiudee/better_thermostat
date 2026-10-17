@@ -92,6 +92,7 @@ def compute_mpc_v2(
         min(100.0, inp.max_opening_pct if inp.max_opening_pct is not None else 100.0),
     )
     curve = None
+    prior = params.flow_prior
     if params.learn_valve_response and not inp.response_managed:
         if inp.response_source is not None:
             state.response.bind_source(inp.response_source, now)
@@ -116,7 +117,7 @@ def compute_mpc_v2(
             )
         )
         learned = state.response.control_curve(prior_heat=0.05)
-        if learned is not None:
+        if learned is not None and prior is None:
             curve, loss = learned
             params = replace(params, response_heat_max=curve[-1], response_loss=loss)
     cap_u = (
@@ -124,6 +125,8 @@ def compute_mpc_v2(
         if curve is None
         else float(np.interp(cap, state.response.GRID, curve)) / curve[-1]
     )
+    if prior is not None:
+        cap_u = prior.flow(int(cap))
     params = replace(
         params,
         qp=replace(params.qp, u_max=cap_u),
@@ -168,7 +171,9 @@ def compute_mpc_v2(
             if curve is None
             else float(np.interp(applied, state.response.GRID, curve)) / curve[-1]
         )
-        state.controller.set_applied_u(min(cap_u, applied_u))
+        state.controller.set_applied_u(
+            prior.flow(applied) if prior else min(cap_u, applied_u)
+        )
 
     if inp.outdoor_temp_C is None:
         T_outdoor = OUTDOOR_TEMP_FALLBACK_C
@@ -196,7 +201,9 @@ def compute_mpc_v2(
     )
 
     percent_int = round(max(0.0, min(1.0, u)) * 100.0)
-    if curve is not None:
+    if prior is not None:
+        percent_int = prior.command(u, cap)
+    elif curve is not None:
         # Select the smallest opening on plateaus, avoiding np.interp's last
         # duplicate behavior which would otherwise choose 100% at saturation.
         unique = [(curve[0], 0)]
@@ -221,7 +228,28 @@ def compute_mpc_v2(
             if curve is None
             else float(np.interp(percent_int, state.response.GRID, curve)) / curve[-1]
         )
+        if prior is not None:
+            actual_u = prior.flow(percent_int)
         state.controller.set_applied_u(actual_u)
+
+    if prior is not None:
+        diag.flow_prior = {
+            "active": True,
+            "source": "manual_assumption",
+            "identity": prior.identity,
+            "onset_pct": prior.onset_pct,
+            "near_full_pct": prior.near_full_pct,
+            "near_full_flow_pct": 98.0,
+            "shape": prior.shape,
+            "requested_flow_pct": round(max(0.0, min(cap_u, u)) * 100, 3),
+            "commanded_opening_pct": percent_int,
+            "commanded_flow_pct": round(prior.flow(percent_int) * 100, 3),
+            "applied_flow_pct": round(state.controller.applied_input * 100, 3),
+            "cap_opening_pct": cap,
+            "cap_flow_pct": round(cap_u * 100, 3),
+            "zero_demand_opening_pct": 0,
+            "learning_changes_prior": False,
+        }
 
     if params.learn_valve_response:
         diag.response_curve = state.response.diagnostics()

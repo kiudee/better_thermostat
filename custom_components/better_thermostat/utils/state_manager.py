@@ -448,7 +448,9 @@ class StateManager:
         """Track successful valve writes between sparse sensor reports."""
         for state in self._mpc_v2_live.values():
             if state.actuator_id == entity_id and state.controller is not None:
-                state.controller.record_applied_u(now, percent / 100)
+                state.controller.record_applied_u(
+                    now, state.controller.valve_to_input(percent)
+                )
         for source, learner in self._response_live.items():
             if source.rsplit("|", 1)[-1] == entity_id:
                 learner.record_command(now, percent)

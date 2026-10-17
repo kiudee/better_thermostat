@@ -4,10 +4,38 @@ The response learner estimates delivered room heating versus valve command from
 irregular temperature reports. It supports event-triggered battery sensors such
 as Aqara: quiet periods do not create samples or reset learning after ten minutes.
 
-**This version is observation-only. Candidate curves never affect heating.**
+**The learner is observation-only. Candidate curves never affect heating.**
 Existing MPC V2, configured valve limits, presets and schedules continue to control
 the radiator. No automatic probes or cap increases are performed. The output is
 room heating in K/min, not measured water flow.
+
+## Optional manual flow prior
+
+The separate advanced option **MPC V2: use assumed 20–40% flow curve** enables
+an explicit actuator assumption for a single radiator with direct MPC V2 control.
+It defaults off. It assumes onset at 19.5% opening and 98% of maximum flow at 40%:
+`q(v) = 1 - exp(-ln(50) * (max(v - 19.5, 0) / 20.5)^1.3)`.
+This is a fixed starting profile, not a learned or measured hydraulic curve.
+
+Zero flow demand always commands physical 0% opening. For positive demand the
+inverse chooses an integer opening with the closest assumed flow, respecting
+the physical opening cap. Tiny solver residuals therefore stay closed instead
+of becoming 20% opening. Completed writes, including temporary closing bumps,
+are converted through the same forward curve for prediction. Observed commands
+above a configured cap remain real model inputs; a cap only constrains requests.
+
+Learning can continue independently and retains physical valve percentages.
+It neither replaces this manual profile nor gains confidence from its assumed
+values. `mpc_v2_flow_prior` reports the active parameters, requested flow,
+commanded opening/flow and last acknowledged model input. These are assumptions
+and acknowledged commands, not measured flow. Supply and radiator inertia still
+limit the accuracy of heat prediction.
+
+Snapshot format 3 records the actuator mapping identity. Matching snapshots
+restore normally; changing the profile starts a fresh observer rather than
+reusing input history in different units. Accepted learning evidence is retained.
+Disable the option to return to the linear opening input. Older software ignores
+format-3 observer snapshots and starts a fresh estimate on rollback.
 
 ## Enable and observe
 

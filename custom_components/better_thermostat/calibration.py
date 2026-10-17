@@ -41,6 +41,7 @@ from custom_components.better_thermostat.utils.calibration.tpi import (
     compute_tpi,
 )
 from custom_components.better_thermostat.utils.const import (
+    CONF_MPC_V2_FLOW_PRIOR,
     CONF_MPC_V2_LEARN_RESPONSE,
     CONF_MPC_V2_PLANT_PRESET,
     CONF_PROTECT_OVERHEATING,
@@ -447,7 +448,16 @@ def _compute_mpc_v2_balance(self, entity_id: str):
     except ValueError:
         preset = MpcV2PlantPreset.AUTO
 
+    from .utils.calibration.mpc_v2.flow_prior import ValveFlowPrior
+
     v2_params = MpcV2Params(
+        flow_prior=(
+            ValveFlowPrior()
+            if advanced.get(CONF_MPC_V2_FLOW_PRIOR) is True
+            and not is_multi_trv
+            and _supports_direct_valve_control(self, entity_id)
+            else None
+        ),
         learn_valve_response=(
             advanced.get(CONF_MPC_V2_LEARN_RESPONSE) is True
             and not is_multi_trv

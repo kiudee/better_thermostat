@@ -26,7 +26,7 @@ _LOGGER = logging.getLogger(__name__)
 # Snapshot format version. Bump when adding/renaming persisted fields so
 # restore_snapshot can refuse payloads from a future Better Thermostat
 # release. Pre-versioning snapshots are treated as version 0.
-SNAPSHOT_VERSION = 2
+SNAPSHOT_VERSION = 3
 
 # Steps arriving closer together than this carry no new information: in a
 # multi-TRV group every TRV dispatch steps the same shared controller within
@@ -61,6 +61,7 @@ class ControllerSnapshot:
     outdoor_C: float | None = None
     target_C: float | None = None
     input_uncertain: bool = False
+    flow_prior_identity: str = "linear"
 
     @classmethod
     def from_mapping(cls, raw: Mapping[str, Any]) -> ControllerSnapshot | None:
@@ -109,6 +110,7 @@ class ControllerSnapshot:
                 if raw.get("target_C") is None
                 else float(raw["target_C"]),
                 input_uncertain=raw.get("input_uncertain") is True,
+                flow_prior_identity=str(raw.get("flow_prior_identity", "linear")),
             )
         except TypeError, ValueError, OverflowError:
             _LOGGER.warning("MPC v2 snapshot contains non-numeric data; ignoring")
@@ -287,6 +289,21 @@ class MpcV2Controller:
             self._u_history[-1] = self._applied_u
         self._input_uncertain = False
 
+    def valve_to_input(self, percent: float) -> float:
+        """Translate physical commands without clipping observed delivery to a cap."""
+        prior = self.params.flow_prior
+        return prior.flow(percent) if prior else percent / 100
+
+    @property
+    def flow_prior_identity(self) -> str:
+        """Identify whether the controller input is opening or assumed flow."""
+        return self.params.flow_prior.identity if self.params.flow_prior else "linear"
+
+    @property
+    def applied_input(self) -> float:
+        """Return the last acknowledged input in this controller's model units."""
+        return self._applied_u
+
     def mark_input_uncertain(self, timestamp: float) -> None:
         """Keep the last acknowledged input but stop learning from this interval."""
         if not math.isfinite(timestamp) or timestamp < self._last_t_s:
@@ -443,6 +460,7 @@ class MpcV2Controller:
             outdoor_C=self._outdoor_C,
             target_C=self._target_C,
             input_uncertain=self._input_uncertain,
+            flow_prior_identity=self.flow_prior_identity,
         )
 
     def restore_snapshot(self, snap: ControllerSnapshot) -> None:
@@ -455,6 +473,9 @@ class MpcV2Controller:
         :meth:`ControllerSnapshot.from_mapping`.
         """
         if snap.heat_response != isinstance(self.plant_fine, HeatResponsePlant):
+            return
+        # Old input history and disturbance estimates use different actuator units.
+        if snap.flow_prior_identity != self.flow_prior_identity:
             return
         n = self.plant_fine.state_dim
         x_hat = np.asarray(snap.x_hat, dtype=float)

@@ -47,6 +47,7 @@ class MpcV2Diagnostics:
     coupling_rad_room: float
     heat_rate_hat_K_min: float | None = None
     response_curve: dict[str, Any] | None = None
+    flow_prior: dict[str, Any] | None = None
 
 
 @dataclass

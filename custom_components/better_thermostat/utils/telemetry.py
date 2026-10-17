@@ -280,6 +280,9 @@ def collect_mpc_v2_debug_attrs(bt: TelemetrySource) -> dict[str, Any]:
             out[dst_key] = round(value, decimals)
 
     curve = debug.get("response_curve")
+    prior = debug.get("flow_prior")
+    if isinstance(prior, dict):
+        out["mpc_v2_flow_prior"] = prior
     if isinstance(curve, dict):
         out["mpc_v2_response_curve"] = curve
         out["mpc_v2_response_status"] = curve.get("status")
