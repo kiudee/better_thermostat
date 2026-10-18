@@ -26,7 +26,8 @@ async def test_successful_commands_are_recorded_between_reports(hass, monkeypatc
         "custom_components.better_thermostat.utils.state_manager.time", lambda: 100000
     )
     monkeypatch.setattr(
-        "custom_components.better_thermostat.adapters.delegate.time", lambda: 100030
+        "custom_components.better_thermostat.adapters.delegate.time.time",
+        lambda: 100030,
     )
     manager = StateManager(hass, "room")
     learner = manager.get_response_learner("sensor.room|weather.home|climate.valve")
@@ -90,7 +91,8 @@ async def test_deferred_close_records_only_completed_device_writes(
         "custom_components.better_thermostat.utils.state_manager.time", lambda: 100000
     )
     monkeypatch.setattr(
-        "custom_components.better_thermostat.adapters.delegate.time", lambda: clock[0]
+        "custom_components.better_thermostat.adapters.delegate.time.time",
+        lambda: clock[0],
     )
     monkeypatch.setattr(
         "custom_components.better_thermostat.utils.valve_commands.time",
@@ -105,7 +107,11 @@ async def test_deferred_close_records_only_completed_device_writes(
     registry.async_get.return_value = SimpleNamespace(device_id="radiator")
     registry.entities.values.return_value = [
         SimpleNamespace(
-            device_id="radiator", domain="number", translation_key=key, entity_id=entity
+            device_id="radiator",
+            domain="number",
+            translation_key=key,
+            entity_id=entity,
+            disabled_by=None,
         )
         for key, entity in (
             ("valve_opening_degree", "number.opening"),

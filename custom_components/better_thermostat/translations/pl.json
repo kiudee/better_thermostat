@@ -42,7 +42,8 @@
           "calibration_mode": "Tryb kalibracji",
           "no_off_system_mode": "Jeśli Twój TRV nie obsługuje trybu wyłączenia, możesz go włączyć, aby zamiast tego używać temperatury docelowej 5°C",
           "mpc_v2_learn_response": "MPC V2: learn valve heating response (experimental)",
-          "mpc_v2_flow_prior": "MPC V2: użyj zakładanej krzywej przepływu 20–40%"
+          "mpc_v2_flow_prior": "MPC V2: użyj zakładanej krzywej przepływu 20–40%",
+          "mpc_v2_plant_preset": "MPC v2 wielkość pomieszczenia"
         },
         "data_description": {
           "protect_overheating": "Niektóre TRV całkowicie zamykają zawór po osiągnięciu temperatury. Lub grzejnik ma dużo ciepła resztkowego. Może to spowodować przegrzanie. Ta opcja może temu zapobiec.",
@@ -68,7 +69,9 @@
     },
     "abort": {
       "single_instance_allowed": "Dozwolony jest tylko jeden termostat dla jednego urządzenia.",
-      "no_devices_found": "Nie znaleziono jednostki termostatu, upewnij się, że masz jednostkę klimatyczną w swoim asystencie domowym."
+      "no_devices_found": "Nie znaleziono jednostki termostatu, upewnij się, że masz jednostkę klimatyczną w swoim asystencie domowym.",
+      "already_configured": "Better Thermostat o tej nazwie już steruje tymi termostatami.",
+      "trv_in_use": "{trv} jest już sterowany przez Better Thermostat {entry}. Termostat może należeć tylko do jednego Better Thermostat; najpierw usuń go tam."
     }
   },
   "options": {
@@ -98,7 +101,8 @@
           "calibration": "Rodzaje kalibracji",
           "heat_auto_swapped": "Jeżeli tryb auto oznacza grzanie dla Twojego TRV i chcesz to zmienić",
           "child_lock": "Ignoruj wszystkie wejścia w TRV jak np. Blokada dziecięca",
-          "homematicip": "Jeżeli używasz HomematicIP, powinienieś włączyć tę opcję żeby spowolnić żądania"
+          "homematicip": "Jeżeli używasz HomematicIP, powinienieś włączyć tę opcję żeby spowolnić żądania",
+          "cooler": "Urządzenie chłodzące (opcjonalnie)"
         },
         "data_description": {
           "presets": "Wybierz ustawienia predefiniowane, które mają być dostępne dla tego termostatu."
@@ -116,7 +120,8 @@
           "calibration_mode": "Tryb kalibracji",
           "no_off_system_mode": "Jeśli Twój TRV nie obsługuje trybu wyłączenia, możesz go włączyć, aby zamiast tego używać temperatury docelowej 5°C",
           "mpc_v2_learn_response": "MPC V2: learn valve heating response (experimental)",
-          "mpc_v2_flow_prior": "MPC V2: użyj zakładanej krzywej przepływu 20–40%"
+          "mpc_v2_flow_prior": "MPC V2: użyj zakładanej krzywej przepływu 20–40%",
+          "mpc_v2_plant_preset": "MPC v2 wielkość pomieszczenia"
         },
         "data_description": {
           "protect_overheating": "Niektóre TRV całkowicie zamykają zawór po osiągnięciu temperatury. Lub grzejnik ma dużo ciepła resztkowego. Może to spowodować przegrzanie. Ta opcja może temu zapobiec.",
@@ -134,7 +139,9 @@
       "no_off_mode": "Twoje urządzenie jest inne i nie ma trybu wyłączenia :(\nTo będzie działać, ale musisz stworzyć automatyzację, aby ustawić funkcje pod swoje urządzenie",
       "target_temp_min_above_max": "Minimalna temperatura docelowa nie może przekraczać maksymalnej temperatury docelowej.",
       "no_outside_temp": "Nie masz czujnika temperatury zewnętrznej. Better Thermostat zamiast tego użyje jednostki pogodowej.",
-      "no_data": "Nie otrzymano żadnych danych. Spróbuj ponownie."
+      "no_data": "Nie otrzymano żadnych danych. Spróbuj ponownie.",
+      "no_sensor": "Wybierz czujnik temperatury pomieszczenia.",
+      "trv_in_use": "{trv} jest już sterowany przez Better Thermostat {entry}. Termostat może należeć tylko do jednego Better Thermostat."
     }
   },
   "issues": {
@@ -164,6 +171,10 @@
     "invalid_external_temperature": {
       "title": "BT: {name} - nieprawidłowa temperatura zewnętrzna",
       "description": "Czujnik temperatury zewnętrznej dla Better Thermostat {name} zgłosił niewiarygodną wartość: {value}.\n\nOdczyt był poza wiarygodnym zakresem i został zignorowany. Sprawdź konfigurację czujnika temperatury."
+    },
+    "shared_trv": {
+      "title": "BT: {trv} jest sterowany przez więcej niż jeden Better Thermostat",
+      "description": "Termostat {trv} należy do tych Better Thermostat: {entries}. Zapisują do niego sprzeczne temperatury docelowe i tryby. Usuń go w ustawieniach ze wszystkich oprócz jednego; potem ten problem zniknie sam."
     }
   },
   "services": {
@@ -455,7 +466,8 @@
           "degraded_mode_entered": "wszedł w tryb awaryjny, ponieważ niektóre czujniki są niedostępne",
           "degraded_mode_resolved": "opuścił tryb awaryjny, ponieważ wszystkie czujniki są dostępne",
           "door_open": "turned off because a door was opened",
-          "door_close": "resumed heating because a door was closed"
+          "door_close": "resumed heating because a door was closed",
+          "weather_forecast_missing": "wznowiono ogrzewanie, ponieważ prognoza pogody jest niedostępna"
         }
       },
       "external_temp_ema": {

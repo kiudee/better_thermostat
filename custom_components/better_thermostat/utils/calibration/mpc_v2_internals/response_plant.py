@@ -35,16 +35,32 @@ class HeatResponsePlant(PlantModelRC2):
 
     @override
     def linearised_AB(
-        self, T_outdoor_C: float, T_rad_op_C: float
+        self, T_outdoor_C: float, T_rad_op_C: float, dt_s: float | None = None
     ) -> tuple[FloatArray, FloatArray, FloatArray]:
         """Return discrete temperature/heat-rate dynamics for the optimiser."""
-        dt = self.dt_min
+        n_steps, dt = self._substeps(dt_s)
         decay = np.exp(-dt / self.params.tau_rad_min)
         # Integrating heat over the step avoids a full extra sample of delay.
         retained = self.params.tau_rad_min * (1 - decay)
-        A = np.array([[1 - dt * self.loss, retained], [0.0, decay]])
-        B = np.array([[(dt - retained) * self.heat_max], [(1 - decay) * self.heat_max]])
-        return A, B, np.array([dt * self.loss * T_outdoor_C, 0.0])
+        A_step = np.array([[1 - dt * self.loss, retained], [0.0, decay]])
+        B_step = np.array(
+            [[(dt - retained) * self.heat_max], [(1 - decay) * self.heat_max]]
+        )
+        d_step = np.array([dt * self.loss * T_outdoor_C, 0.0])
+        A, B, d = np.eye(2), np.zeros((2, 1)), np.zeros(2)
+        for _ in range(n_steps):
+            B = A_step @ B + B_step
+            d = A_step @ d + d_step
+            A = A_step @ A
+        return A, B, d
+
+    @override
+    def propagate(
+        self, x: FloatArray, u: float, outdoor_temperature: float, dt_s: float
+    ) -> FloatArray:
+        """Keep the heat-rate state when an observer propagates a longer gap."""
+        A, B, d = self.linearised_AB(outdoor_temperature, 0.0, dt_s=dt_s)
+        return A @ x + B.flatten() * np.clip(u, 0, 1) + d
 
     @override
     def discrete_step(

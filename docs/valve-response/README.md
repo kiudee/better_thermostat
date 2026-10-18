@@ -171,11 +171,18 @@ into new episode counts or confidence. Standalone v1 imports are bounded and
 archived. Duplicate/overlapping, expired and malformed episode records are rejected.
 No historical evidence is automatically injected into a running installation.
 
-Active observer snapshots now use a physical-source key and format version 2,
+Active observer snapshots now use a physical-source key and format version 3,
 including report identity and completed input. Old target-specific snapshots
 remain stored for rollback; they are not migrated into the new observer. The first
 run therefore starts a fresh physical estimate while retaining response-learning
 evidence. Restart cannot establish commands issued while Core was stopped.
+
+The fork incorporates upstream 1.9.3. Its combined controller API accepts a fresh
+measurement each call and uses upstream's filtered planning disturbance. Actual
+sensor sources use the timestamped API: prediction and genuine-report correction
+stay separate, and the existing report-driven disturbance adaptation is retained.
+This avoids treating quiet Aqara readings as repeated measurements. Both paths
+support the portable NumPy solver; DAQP remains installed for acceleration.
 
 ## Private replay
 
