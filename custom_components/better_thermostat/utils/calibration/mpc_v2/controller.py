@@ -272,6 +272,7 @@ class MpcV2Controller:
                 self.dob.D_hat_K_per_min = max(
                     -0.1, min(0.1, self.dob.D_hat_K_per_min + correction)
                 )
+                self.dob.update_report_planning(dt_s)
         self._last_reported_at = timestamp
         self._disturbance_interval_valid = (
             learn_disturbance and not self._input_uncertain
@@ -464,11 +465,7 @@ class MpcV2Controller:
             T_sp=sp_for_opt,
             T_outdoor_C=T_outdoor_C,
             u_last=self._applied_u,
-            D_hat_K_per_min=(
-                self.dob.D_hat_K_per_min
-                if room_reported_at is not None
-                else self.dob.planning_rate
-            ),
+            D_hat_K_per_min=self.dob.planning_rate,
         )
         if room_reported_at is None and not self._input_uncertain:
             self.optimiser.update_integral(

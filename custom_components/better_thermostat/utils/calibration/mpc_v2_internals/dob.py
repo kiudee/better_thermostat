@@ -101,6 +101,25 @@ class DisturbanceObserver:
             0.0 if planning is None else max(-max_abs, min(max_abs, planning))
         )
 
+    def update_report_planning(self, dt_s: float) -> None:
+        """Filter a genuine report's estimate for the full planning horizon.
+
+        Sparse reports can arrive an hour apart. Use their elapsed time rather
+        than the control tick; polling must not make a transient correction look
+        like repeated evidence. The caller excludes interrupted/uncertain spans.
+
+        Parameters
+        ----------
+        dt_s : float
+            Elapsed seconds between the two valid sensor reports.
+        """
+        if not math.isfinite(dt_s) or dt_s <= 0:
+            return
+        bound = max(0.0, self.params.max_abs_K_per_min)
+        estimate = max(-bound, min(bound, self.D_hat_K_per_min))
+        weight = -math.expm1(-dt_s / max(self.params.planning_tau_s, 1e-6))
+        self.planning_filtered += weight * (estimate - self.planning_filtered)
+
     def update(self, correction_K: float, dt_s: float) -> float:
         """Fold one room correction into the EMA and return the disturbance estimate.
 

@@ -181,6 +181,12 @@ The fork incorporates upstream 1.9.3. Its combined controller API accepts a fres
 measurement each call and uses upstream's filtered planning disturbance. Actual
 sensor sources use the timestamped API: prediction and genuine-report correction
 stay separate, and the existing report-driven disturbance adaptation is retained.
+Its fast correction updates a separate bounded planning estimate only on genuine,
+uninterrupted reports, using the time between reports. The optimiser uses that
+slower estimate with a small deadband: a brief cooling correction must not become
+a permanent loss across the whole forecast. The planning estimate is preserved
+in the existing optional snapshot field; older snapshots start it at zero.
+Polling, uncertain writes and the first report after restart add no planning evidence.
 This avoids treating quiet Aqara readings as repeated measurements. Both paths
 support the portable NumPy solver; DAQP remains installed for acceleration.
 
