@@ -82,7 +82,7 @@ from .adapters.delegate import (
     set_temperature as adapter_set_temperature,
 )
 from .device_binding import async_bind_trv_device
-from .events.contact import OPEN_WORDS
+from .events.contact import OPEN_WORDS, reconcile_contacts
 from .events.cooler import trigger_cooler_change
 from .events.door import door_queue, trigger_door_change
 from .events.temperature import (
@@ -2690,6 +2690,8 @@ class BetterThermostat(ClimateEntity, RestoreEntity, ABC):
                     self.hass, [self.door_id], self._trigger_door_change
                 )
             )
+        # Startup waits can miss changes before these listeners exist.
+        await reconcile_contacts(self)
         if self.cooler_entity_id is not None:
             _shared_entity_id = dual_role_entity_id(self)
             if _shared_entity_id is None:

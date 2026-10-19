@@ -1545,6 +1545,61 @@ async def _run_finalize_startup(bt):
         await BetterThermostat._finalize_startup(bt)
 
 
+@pytest.mark.asyncio
+@pytest.mark.parametrize("kind", ["window", "door"])
+@pytest.mark.parametrize("was_open", [False, True])
+async def test_contact_changed_during_startup_reaches_debounce_queue(kind, was_open):
+    """A change before listener registration must still reach normal protection."""
+    bt = _make_finalize_bt()
+    bt.cooler_entity_id = None
+    entity_id = f"binary_sensor.{kind}"
+    setattr(bt, f"{kind}_id", entity_id)
+    setattr(bt, f"{kind}_open", was_open)
+    queue = asyncio.Queue()
+    setattr(bt, f"{kind}_queue_task", queue)
+    bt._heating_tracker = MagicMock()
+    state = State(entity_id, "off" if was_open else "on")
+    bt.hass.states.get.side_effect = lambda entity: (
+        state if entity == entity_id else None
+    )
+    with patch(
+        "custom_components.better_thermostat.events.contact.ir.async_delete_issue"
+    ):
+        await _run_finalize_startup(bt)
+
+    assert not queue.empty(), "Contact change was lost before its listener existed"
+    assert queue.get_nowait() is not was_open
+    assert queue.empty()
+    # The regular queue, including its configured delay, owns the actual change.
+    assert getattr(bt, f"{kind}_open") is was_open
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("kind", ["window", "door"])
+@pytest.mark.parametrize("state", ["off", "unknown", "unavailable", None])
+async def test_startup_contact_catchup_preserves_unchanged_or_missing_input(
+    kind, state
+):
+    """Catch-up does not fabricate transitions or change missing-input startup policy."""
+    bt = _make_finalize_bt()
+    bt.cooler_entity_id = None
+    entity_id = f"binary_sensor.{kind}"
+    setattr(bt, f"{kind}_id", entity_id)
+    setattr(bt, f"{kind}_open", False)
+    queue = asyncio.Queue()
+    setattr(bt, f"{kind}_queue_task", queue)
+    reading = State(entity_id, state) if state is not None else None
+    bt.hass.states.get.side_effect = lambda entity: (
+        reading if entity == entity_id else None
+    )
+    with patch(
+        "custom_components.better_thermostat.events.contact.ir.async_delete_issue"
+    ):
+        await _run_finalize_startup(bt)
+    assert queue.empty()
+    assert not getattr(bt, f"{kind}_open")
+
+
 class TestStartupStopsOnceTheEntityIsGone:
     """A startup interrupted by removal must not go on setting the room up.
 
