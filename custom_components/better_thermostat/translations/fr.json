@@ -40,12 +40,17 @@
           "valve_maintenance": "Si votre thermostat n'a pas de mode maintenance propre, vous pouvez utiliser celui-ci",
           "calibration": "Type de calibrage",
           "calibration_mode": "Mode de calibrage",
-          "no_off_system_mode": "Si votre TRV ne peut pas gérer le mode hors tension, vous pouvez activer ceci pour utiliser une température cible de 5°C à la place"
+          "no_off_system_mode": "Si votre TRV ne peut pas gérer le mode hors tension, vous pouvez activer ceci pour utiliser une température cible de 5°C à la place",
+          "mpc_v2_learn_response": "MPC V2: learn valve heating response (experimental)",
+          "mpc_v2_flow_prior": "MPC V2 : utiliser la courbe de débit supposée 20–40 %",
+          "mpc_v2_plant_preset": "MPC v2 taille de la pièce"
         },
         "data_description": {
           "protect_overheating": "Certains TRVs ne ferment pas complètement la vanne lorsque la température est atteinte. Ou le radiateur a beaucoup de chaleur résiduelle. Cela peut provoquer une surchauffe. Cette option peut prévenir cela.",
           "calibration_mode": "Le type de calcul du calibrage\n***Normal*** : Dans ce mode, le capteur de température interne du TRV est fixé par le capteur de température externe.\n***Aggressif*** : Dans ce mode, le capteur de température interne du TRV est fixé par le capteur de température externe mais réglé beaucoup plus bas/haut pour obtenir un boost plus rapide.\n***AI Time Based*** : Dans ce mode, le capteur de température interne du TRV est fixé par le capteur de température externe, mais la valeur est calculée par un algorithme personnalisé pour améliorer l'algorithme interne du TRV.\n***MPC Predictive (Beta)*** : Utilise le contrôleur prédictif MPC pour dériver une ouverture de vanne et la convertir en décalages ou points de consigne lorsque le contrôle direct de la vanne n'est pas disponible.\n***PID Controller*** : Utilise un contrôleur PID pour ajuster dynamiquement la position de la vanne en fonction de l'erreur de température, du terme proportionnel, de l'accumulation intégrale et de la prédiction dérivée.\n***TPI Controller*** : Utilise un contrôleur Proportionnel Intégral Temporel pour un contrôle de température stable et précis dans le temps.",
-          "calibration": "Comment le calibrage doit être appliqué sur le TRV (Température cible ou décalage)\n***Basé sur la température cible*** : Appliquer le calibrage à la température cible.\n***Basé sur le décalage*** : Appliquer le calibrage au décalage."
+          "calibration": "Comment le calibrage doit être appliqué sur le TRV (Température cible ou décalage)\n***Basé sur la température cible*** : Appliquer le calibrage à la température cible.\n***Basé sur le décalage*** : Appliquer le calibrage au décalage.",
+          "mpc_v2_learn_response": "Single radiator with direct valve control only. Learns from settled, fresh reports without forced heating experiments. Your maximum opening remains enforced. Unobserved valve ranges remain uncertain.",
+          "mpc_v2_flow_prior": "Expérimental, un seul radiateur à commande directe. Suppose un début de débit à 19,5 % et un débit de 98 % à 40 % d’ouverture. Une demande nulle ferme à 0 %. La réponse thermique apprise ne remplace pas automatiquement cette hypothèse."
         }
       },
       "confirm": {
@@ -64,7 +69,9 @@
     },
     "abort": {
       "single_instance_allowed": "Seule une instance de thermostat pour chaque vrai thermostat est autorisée.",
-      "no_devices_found": "Aucune entité de thermostat trouvée, assurez-vous d'avoir une entité de climatisation dans votre Home Assistant"
+      "no_devices_found": "Aucune entité de thermostat trouvée, assurez-vous d'avoir une entité de climatisation dans votre Home Assistant",
+      "already_configured": "Un Better Thermostat portant ce nom contrôle déjà ces thermostats.",
+      "trv_in_use": "{trv} est déjà contrôlé par le Better Thermostat {entry}. Un thermostat ne peut appartenir qu’à un seul Better Thermostat ; retirez-le d’abord de celui-ci."
     }
   },
   "options": {
@@ -94,7 +101,8 @@
           "calibration": "Le type de calibrage",
           "heat_auto_swapped": "Si le mode automatique signifie chauffage pour votre TRV et que vous voulez le permuter",
           "child_lock": "Ignorer toutes les entrées sur le TRV comme une sécurité enfant",
-          "homematicip": "Si vous utilisez HomematicIP, vous devriez l'activer pour ralentir les demandes et éviter le cycle de fonctionnement excessif"
+          "homematicip": "Si vous utilisez HomematicIP, vous devriez l'activer pour ralentir les demandes et éviter le cycle de fonctionnement excessif",
+          "cooler": "Le dispositif de refroidissement (optionnel)"
         },
         "data_description": {
           "presets": "Sélectionnez les préréglages qui doivent être disponibles pour ce thermostat."
@@ -110,12 +118,17 @@
           "valve_maintenance": "Si votre thermostat n'a pas de mode maintenance propre, vous pouvez utiliser celui-ci",
           "calibration": "Le type de calibrage que vous souhaitez utiliser",
           "calibration_mode": "Mode de calibrage",
-          "no_off_system_mode": "Si votre TRV ne peut pas gérer le mode hors tension, vous pouvez activer ceci pour utiliser une température cible de 5°C à la place"
+          "no_off_system_mode": "Si votre TRV ne peut pas gérer le mode hors tension, vous pouvez activer ceci pour utiliser une température cible de 5°C à la place",
+          "mpc_v2_learn_response": "MPC V2: learn valve heating response (experimental)",
+          "mpc_v2_flow_prior": "MPC V2 : utiliser la courbe de débit supposée 20–40 %",
+          "mpc_v2_plant_preset": "MPC v2 taille de la pièce"
         },
         "data_description": {
           "protect_overheating": "Certains TRVs ne ferment pas complètement la vanne lorsque la température est atteinte. Ou le radiateur a beaucoup de chaleur résiduelle. Cela peut provoquer une surchauffe. Cette option peut prévenir cela.",
           "calibration_mode": "Le type de calcul du calibrage\n***Normal*** : Dans ce mode, le capteur de température interne du TRV est fixé par le capteur de température externe.\n***Aggressif*** : Dans ce mode, le capteur de température interne du TRV est fixé par le capteur de température externe mais réglé beaucoup plus bas/haut pour obtenir un boost plus rapide.\n***AI Time Based*** : Dans ce mode, le capteur de température interne du TRV est fixé par le capteur de température externe, mais la valeur est calculée par un algorithme personnalisé pour améliorer l'algorithme interne du TRV.\n***MPC Predictive (Beta)*** : Utilise le contrôleur prédictif MPC pour dériver une ouverture de vanne et la convertir en décalages ou points de consigne lorsque le contrôle direct de la vanne n'est pas disponible.\n***PID Controller*** : Utilise un contrôleur PID pour ajuster dynamiquement la position de la vanne en fonction de l'erreur de température, du terme proportionnel, de l'accumulation intégrale et de la prédiction dérivée.\n***TPI Controller*** : Utilise un contrôleur Proportionnel Intégral Temporel pour un contrôle de température stable et précis dans le temps.",
-          "calibration": "Comment le calibrage doit être appliqué sur le TRV (Température cible ou décalage)\n***Basé sur la température cible*** : Appliquer le calibrage à la température cible.\n***Basé sur le décalage*** : Appliquer le calibrage au décalage."
+          "calibration": "Comment le calibrage doit être appliqué sur le TRV (Température cible ou décalage)\n***Basé sur la température cible*** : Appliquer le calibrage à la température cible.\n***Basé sur le décalage*** : Appliquer le calibrage au décalage.",
+          "mpc_v2_learn_response": "Single radiator with direct valve control only. Learns from settled, fresh reports without forced heating experiments. Your maximum opening remains enforced. Unobserved valve ranges remain uncertain.",
+          "mpc_v2_flow_prior": "Expérimental, un seul radiateur à commande directe. Suppose un début de débit à 19,5 % et un débit de 98 % à 40 % d’ouverture. Une demande nulle ferme à 0 %. La réponse thermique apprise ne remplace pas automatiquement cette hypothèse."
         }
       }
     },
@@ -126,7 +139,9 @@
       "no_off_mode": "Votre appareil est très spécial et n'a pas de mode hors tension :(\nBetter Thermostat utilisera plutôt la température cible minimale.",
       "target_temp_min_above_max": "La température cible minimale ne doit pas dépasser la température cible maximale.",
       "no_outside_temp": "Vous n'avez pas de capteur de température extérieure. Better Thermostat utilisera plutôt l'entité météo.",
-      "no_data": "Aucune donnée n'a été reçue. Veuillez réessayer."
+      "no_data": "Aucune donnée n'a été reçue. Veuillez réessayer.",
+      "no_sensor": "Veuillez sélectionner un capteur de température ambiante.",
+      "trv_in_use": "{trv} est déjà contrôlé par le Better Thermostat {entry}. Un thermostat ne peut appartenir qu’à un seul Better Thermostat."
     }
   },
   "issues": {
@@ -156,6 +171,10 @@
     "invalid_external_temperature": {
       "title": "BT: {name} - température extérieure invalide",
       "description": "Le capteur de température extérieure pour Better Thermostat {name} a signalé une valeur invraisemblable : {value}.\n\nLa lecture était en dehors de la plage plausible et a été ignorée. Veuillez vérifier la configuration de votre capteur de température."
+    },
+    "shared_trv": {
+      "title": "BT : {trv} est contrôlé par plusieurs Better Thermostat",
+      "description": "Le thermostat {trv} appartient à ces Better Thermostat : {entries}. Ils lui envoient des consignes et des modes concurrents. Retirez-le de tous sauf un dans leurs paramètres ; ce problème disparaît ensuite de lui-même."
     }
   },
   "services": {
@@ -447,7 +466,8 @@
           "degraded_mode_entered": "est entré en mode dégradé car certains capteurs sont indisponibles",
           "degraded_mode_resolved": "a quitté le mode dégradé car tous les capteurs sont disponibles",
           "door_open": "éteint parce qu'une porte a été ouverte",
-          "door_close": "chauffage repris parce qu'une porte a été fermée"
+          "door_close": "chauffage repris parce qu'une porte a été fermée",
+          "weather_forecast_missing": "chauffage repris car les prévisions météo sont indisponibles"
         }
       },
       "external_temp_ema": {

@@ -13,6 +13,8 @@ from dataclasses import dataclass
 import logging
 from typing import Final, Literal
 
+from homeassistant.const import EVENT_STATE_CHANGED
+from homeassistant.core import Event, EventStateChangedData
 from homeassistant.helpers import issue_registry as ir
 
 from custom_components.better_thermostat import DOMAIN
@@ -69,6 +71,37 @@ DOOR = ContactRole(
     issue_translation_key="invalid_door_state",
     learn_more_url="https://better-thermostat.org/faq/door-sensor",
 )
+
+CONTACT_ROLES: Final = (WINDOW, DOOR)
+
+
+async def reconcile_contacts(self) -> None:
+    """Catch contact changes missed before startup registered their listeners."""
+    for role in CONTACT_ROLES:
+        entity_id = getattr(self, role.entity_id_attr)
+        if entity_id is None:
+            continue
+        state = self.hass.states.get(entity_id)
+        # Keep startup's missing-input policy; only a known reading can catch up.
+        if state is None or state.state not in (*OPEN_WORDS, *CLOSED_WORDS):
+            continue
+        if (state.state in OPEN_WORDS) == getattr(self, role.open_attr):
+            continue
+        await trigger_contact_change(
+            self,
+            role,
+            Event(
+                EVENT_STATE_CHANGED,
+                EventStateChangedData(
+                    entity_id=entity_id, old_state=None, new_state=state
+                ),
+            ),
+        )
+
+
+def contact_issue_id(role: ContactRole, device_name: str) -> str:
+    """Return the repair issue id of one contact kind of one thermostat."""
+    return f"{role.issue_translation_key}_{device_name}"
 
 
 async def trigger_contact_change(self, role: ContactRole, event) -> None:
@@ -131,7 +164,7 @@ async def trigger_contact_change(self, role: ContactRole, event) -> None:
         ir.async_create_issue(
             hass=self.hass,
             domain=DOMAIN,
-            issue_id=f"{role.issue_translation_key}_{self.device_name}",
+            issue_id=contact_issue_id(role, self.device_name),
             is_fixable=False,
             is_persistent=False,
             learn_more_url=role.learn_more_url,
@@ -145,9 +178,7 @@ async def trigger_contact_change(self, role: ContactRole, event) -> None:
         return
 
     # a recognized reading clears any stale invalid-state repair issue
-    ir.async_delete_issue(
-        self.hass, DOMAIN, f"{role.issue_translation_key}_{self.device_name}"
-    )
+    ir.async_delete_issue(self.hass, DOMAIN, contact_issue_id(role, self.device_name))
 
     # make sure to skip events which do not change the saved contact state:
     if new_contact_open == old_contact_open:

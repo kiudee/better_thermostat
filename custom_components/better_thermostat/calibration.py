@@ -41,6 +41,8 @@ from custom_components.better_thermostat.utils.calibration.tpi import (
     compute_tpi,
 )
 from custom_components.better_thermostat.utils.const import (
+    CONF_MPC_V2_FLOW_PRIOR,
+    CONF_MPC_V2_LEARN_RESPONSE,
     CONF_MPC_V2_PLANT_PRESET,
     CONF_PROTECT_OVERHEATING,
     DEFAULT_CALIBRATION_MODE,
@@ -53,15 +55,12 @@ from custom_components.better_thermostat.utils.helpers import (
     convert_to_float_celsius,
     heating_power_valve_position,
     normalize_calibration_mode,
+    normalize_step,
     round_by_step,
     rounding,
 )
 
 _LOGGER = logging.getLogger(__name__)
-
-# Thermostats that already logged the MPC-v2-unavailable warning; keeps the
-# per-cycle dispatch from repeating it when the daqp import keeps failing.
-_MPC_V2_IMPORT_WARNED: set[str] = set()
 
 # Post-adjustment gates that fire because Better Thermostat is not calling for
 # heat take the same arm while the cooler runs: a TRV valve that opens works
@@ -92,6 +91,29 @@ def _compute_zero_open_offset(
     _offset = _max_offset * (1.0 - math.exp(-0.5 * _overshoot))
     _offset = max(_trv_temp_step, _offset)
     return _offset
+
+
+def _filtered_room_temp(self) -> float | None:
+    """Return the filtered room temperature a controller may use.
+
+    The filter runs on the room sensor's readings, so while the TRV
+    temperature stands in for a lost sensor it still holds that sensor's
+    last value; the controllers then work on the unfiltered room
+    temperature.
+
+    Parameters
+    ----------
+    self :
+            self instance of better_thermostat
+
+    Returns
+    -------
+    float | None
+            The filtered room temperature, or None during the TRV fallback.
+    """
+    if self.room_sensor_fallback:
+        return None
+    return self.cur_temp_filtered
 
 
 def _get_current_outdoor_temp(self) -> float | None:
@@ -285,9 +307,10 @@ def _compute_mpc_balance(self, entity_id: str):
     params = MpcParams()
 
     # Optional: use filtered external temperature for MPC cost evaluation to reduce jitter.
-    # `cur_temp_filtered` is maintained by events/temperature.py (EMA) and passed separately.
+    # `cur_temp_filtered` is maintained by events/temperature.py (EMA) and passed
+    # separately, except while the TRV temperature stands in for the room sensor.
     mpc_current_temp = self.cur_temp
-    mpc_filtered_temp = self.cur_temp_filtered
+    mpc_filtered_temp = _filtered_room_temp(self)
 
     _is_day = True
     if self.hass:
@@ -430,10 +453,9 @@ def _compute_mpc_v2_balance(self, entity_id: str):
         self, warmest_trv_id if is_multi_trv else entity_id
     )
 
-    if is_multi_trv:
-        mpc_key = build_mpc_group_key(self)
-    else:
-        mpc_key = build_mpc_key(self, entity_id)
+    from .utils.mpc_observation import attach_mpc_observation, physical_mpc_key
+
+    mpc_key = physical_mpc_key(self)
 
     # In a group all TRVs share one controller state, so the plant preset must
     # be group-stable: derive it from a deterministic representative (first TRV
@@ -447,21 +469,49 @@ def _compute_mpc_v2_balance(self, entity_id: str):
     except ValueError:
         preset = MpcV2PlantPreset.AUTO
 
+    from .utils.calibration.mpc_v2.flow_prior import ValveFlowPrior
+
     v2_params = MpcV2Params(
+        flow_prior=(
+            ValveFlowPrior()
+            if advanced.get(CONF_MPC_V2_FLOW_PRIOR) is True
+            and not is_multi_trv
+            and _supports_direct_valve_control(self, entity_id)
+            else None
+        ),
+        learn_valve_response=(
+            advanced.get(CONF_MPC_V2_LEARN_RESPONSE) is True
+            and not is_multi_trv
+            and _supports_direct_valve_control(self, entity_id)
+        ),
         plant=make_plant_prior(
             heating_power=getattr(self, "heating_power", None),
             heat_loss_rate=getattr(self, "heat_loss_rate", None),
             preset=None if preset == MpcV2PlantPreset.AUTO else preset.value,
-        )
+        ),
     )
 
     try:
         mpc_v2_state = self.state_mgr.get_mpc_v2_live(mpc_key, v2_params)
+        raw_temperature, reported_at, observation_managed = attach_mpc_observation(
+            self, mpc_key, mpc_v2_state
+        )
+        manages_applied_input = (
+            observation_managed
+            and not is_multi_trv
+            and _supports_direct_valve_control(self, entity_id)
+        )
+        mpc_v2_state.actuator_id = entity_id if manages_applied_input else None
+        if v2_params.learn_valve_response:
+            from .utils.response_learning import attach_response_collection
+
+            mpc_v2_state.response = attach_response_collection(self, entity_id)
+            mpc_v2_state.response_shared = True
         mpc_output, mpc_v2_state = compute_mpc_v2(
             MpcV2Input(
                 key=mpc_key,
                 target_temp_C=self.bt_target_temp,
-                current_temp_C=self.cur_temp,
+                current_temp_C=raw_temperature,
                 trv_temp_C=trv_state.current_temperature,
                 window_open=self.contact_open,
                 heating_allowed=True,
@@ -469,22 +519,16 @@ def _compute_mpc_v2_balance(self, entity_id: str):
                 entity_id=entity_id,
                 outdoor_temp_C=_get_current_outdoor_temp(self),
                 max_opening_pct=max_opening_pct,
+                response_managed=mpc_v2_state.response_shared,
+                room_reported_at=reported_at,
+                applied_input_managed=manages_applied_input,
+                applied_valve_pct=trv_state.last_valve_percent
+                if not is_multi_trv
+                else None,
             ),
             v2_params,
             state=mpc_v2_state,
         )
-    except ImportError as err:
-        # Controller construction raises when the daqp wheel is missing.
-        # daqp is not a hard manifest requirement (it has no aarch64 wheel for
-        # the HA Python), so a user can select MPC v2 without it installed —
-        # warn once per thermostat instead of spamming every cycle.
-        if self.device_name not in _MPC_V2_IMPORT_WARNED:
-            _MPC_V2_IMPORT_WARNED.add(self.device_name)
-            _LOGGER.warning(
-                "better_thermostat %s: MPC v2 unavailable: %s", self.device_name, err
-            )
-        trv_state.calibration_balance = None
-        return None, False
     except (ValueError, TypeError, ZeroDivisionError) as err:
         _LOGGER.debug(
             "better_thermostat %s: MPC v2 compute failed for %s: %s",
@@ -680,7 +724,7 @@ def _compute_pid_balance(self, entity_id: str):
             trv_state.current_temperature,
             self.temp_slope,
             key,
-            inp_current_temp_ema_C=self.cur_temp_filtered,
+            inp_current_temp_ema_C=_filtered_room_temp(self),
             max_opening_pct=_get_trv_max_opening(self, entity_id),
             state=pid_state,
         )
@@ -1036,12 +1080,14 @@ def calculate_calibration_local(self, entity_id) -> float | None:
             CONF_PROTECT_OVERHEATING, False
         )
 
-        # Additional adjustment if overheating protection is enabled
+        # Overheating protection only ever closes the valve: the term counts
+        # from heating target + tolerance and is zero below that line.
         if _overheating_protection is True:
             if self.hvac_action == HVACAction.IDLE:
-                _new_trv_calibration += (
-                    _cur_external_temp - (_cur_target_temp + self.tolerance)
-                ) * 8.0  # Reduced from 10.0 since we already add 2.0
+                if _cur_external_temp > _cur_target_temp + self.tolerance:
+                    _new_trv_calibration += (
+                        _cur_external_temp - (_cur_target_temp + self.tolerance)
+                    ) * 8.0
 
     # Direction-aware rounding for local calibration offset.
     # Calibration offset works inversely to setpoint: a positive offset makes
@@ -1143,10 +1189,10 @@ def calculate_calibration_setpoint(self, entity_id) -> float | None:
     _cur_trv_temp_s = self.real_trvs[entity_id].current_temperature
     _cur_trv_temp = _convert_to_float(_cur_trv_temp_s)
 
-    _trv_temp_step_raw = self.real_trvs[entity_id].target_temp_step
-    _trv_temp_step = _convert_to_float(_trv_temp_step_raw)
-    if _trv_temp_step is None or _trv_temp_step <= 0:
-        _trv_temp_step = 0.5
+    # The step is the grid the setpoint is rounded to, so it is kept as the
+    # device states it: a 1 °F step on the 0.01 grid of a reading, 0.56 K,
+    # drifts off whole degrees Fahrenheit within a few steps.
+    _trv_temp_step = normalize_step(self.real_trvs[entity_id].target_temp_step)
 
     if _cur_trv_temp is None:
         return None
@@ -1399,12 +1445,14 @@ def calculate_calibration_setpoint(self, entity_id) -> float | None:
             CONF_PROTECT_OVERHEATING, False
         )
 
-        # Additional adjustment if overheating protection is enabled
+        # Overheating protection only ever closes the valve: the term counts
+        # from heating target + tolerance and is zero below that line.
         if _overheating_protection is True:
             if self.hvac_action == HVACAction.IDLE:
-                _calibrated_setpoint -= (
-                    _cur_external_temp - (_cur_target_temp + self.tolerance)
-                ) * 8.0  # Reduced from 10.0 since we already subtract 2.0
+                if _cur_external_temp > _cur_target_temp + self.tolerance:
+                    _calibrated_setpoint -= (
+                        _cur_external_temp - (_cur_target_temp + self.tolerance)
+                    ) * 8.0
 
     # Direction-aware rounding: idle and cooling round the setpoint DOWN so the
     # TRV sees a target below its current temperature and closes the valve.

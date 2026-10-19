@@ -15,12 +15,10 @@ cycle.
 Process noise on ``T_rad`` is intentionally larger than on ``T_room`` so
 the filter adapts quickly to radiator dynamics the model gets wrong.
 
-Each update propagates exactly one plant step (``plant_step_s``) regardless
-of the actual wall-clock spacing of control cycles. For the slow thermal
-plant this mis-weights the model dynamics between irregular cycles, but the
-measurement correction on every cycle keeps the room channel anchored; the
-controller additionally rejects sub-second repeat steps so the same
-measurement is never folded in twice within one control pass.
+The controller calls ``predict_elapsed`` with real elapsed time and
+``correct_report`` once per genuine sensor report. The combined ``update``
+method remains available for simulations that supply a new measurement at
+every fixed plant step.
 """
 
 from __future__ import annotations
@@ -82,6 +80,9 @@ class KalmanObserver:
         self.Q = np.diag([params.q_room, params.q_rad])
         self.R = np.array([[params.r_sensor]])
         self.C = np.array([[1.0, 0.0]])
+        # How far the latest ``update`` moved the room estimate towards the
+        # measurement (K); the disturbance observer's input.
+        self.room_correction: float = 0.0
 
     def initialise(self, x0: FloatArray) -> None:
         """Seed the state estimate from ``x0`` and reset the covariance."""
@@ -94,16 +95,27 @@ class KalmanObserver:
         P0[0, 0] = 0.01
         self.P = P0
 
-    def update(self, y_meas: float, u: float, T_outdoor_C: float) -> FloatArray:
+    def update(
+        self, y_meas: float, u: float, T_outdoor_C: float, dt_s: float | None = None
+    ) -> FloatArray:
         """Run one predict/correct step and return the updated state estimate.
 
-        Predicts through the linearised RC2 dynamics for input ``u``, then
-        corrects with the room measurement ``y_meas`` and returns a copy of the
-        new ``[T_room, T_rad]`` estimate.
+        Predicts through the RC2 dynamics for input ``u`` over ``dt_s`` (one
+        plant step when ``None``), then corrects with the room measurement
+        ``y_meas`` and returns a copy of the new ``[T_room, T_rad]`` estimate.
         """
-        A, B, d = self.plant.linearised_AB(T_outdoor_C, float(self.x_hat[1]))
-        x_pred = A @ self.x_hat + B.flatten() * u + d
-        P_pred = A @ self.P @ A.T + self.Q
+        elapsed_s = self.plant.dt_s if dt_s is None else max(0.0, dt_s)
+        A, x_pred = self._predict(u, T_outdoor_C, elapsed_s)
+        # ``Q`` is configured for the plant's nominal observer step.  Scale
+        # it with elapsed time so sparse events increase uncertainty instead
+        # of making the filter over-confident. The prediction covers at most
+        # the plant's settling time, and so does the process noise: the
+        # stable dynamics forget older disturbances just as they forget the
+        # older state, so a longer silence adds no further uncertainty.
+        q_scale = min(elapsed_s, self.plant.settling_time_s) / max(
+            self.plant.dt_s, 1e-9
+        )
+        P_pred = A @ self.P @ A.T + self.Q * q_scale
         innovation = y_meas - float((self.C @ x_pred).item())
         # ``S = C·P_pred·Cᵀ + R`` is 1×1; invert it as a guarded scalar
         # reciprocal so a corrupted (e.g. restored) covariance can't drive a
@@ -111,11 +123,64 @@ class KalmanObserver:
         s = float((self.C @ P_pred @ self.C.T + self.R)[0, 0])
         K = P_pred @ self.C.T * (1.0 / max(s, 1e-12))
         self.x_hat = x_pred + (K.flatten() * innovation)
+        self.room_correction = float(self.x_hat[0] - x_pred[0])
         self.P = (np.eye(2) - K @ self.C) @ P_pred
         return self.x_hat.copy()
+
+    def predict_elapsed(
+        self, u: float, T_outdoor_C: float, dt_s: float, disturbance: float = 0.0
+    ) -> None:
+        """Predict elapsed time exactly without inventing sensor measurements.
+
+        The continuous process noise matches Q at the nominal plant cadence.
+        Exact state and covariance propagation makes extra polling harmless.
+        """
+        if dt_s <= 0:
+            return
+        matrix, forcing = self.plant.continuous_dynamics(u, T_outdoor_C)
+        forcing[0] += disturbance
+        eigenvalues, vectors = np.linalg.eig(matrix)
+        transition = (
+            vectors @ np.diag(np.exp(eigenvalues * dt_s / 60)) @ np.linalg.inv(vectors)
+        ).real
+        equilibrium = np.linalg.solve(matrix, -forcing)
+        self.x_hat = equilibrium + transition @ (self.x_hat - equilibrium)
+        noise_rate = self.Q / (self.plant.dt_s / 60)
+        # Stationary covariance solves A S + S A.T = -Q; then integrate noise.
+        operator = np.kron(matrix, np.eye(2)) + np.kron(np.eye(2), matrix)
+        stationary = np.linalg.solve(operator, -noise_rate.reshape(4)).reshape(2, 2)
+        process = stationary - transition @ stationary @ transition.T
+        self.P = transition @ self.P @ transition.T + process
+        self.P = (self.P + self.P.T) / 2
+
+    def correct_report(self, temperature: float) -> float:
+        """Assimilate one genuine report and return its pre-correction error."""
+        innovation = temperature - float(self.x_hat[0])
+        variance = max(float(self.P[0, 0] + self.R[0, 0]), 1e-12)
+        gain = self.P[:, 0] / variance
+        self.x_hat += gain * innovation
+        self.room_correction = float(gain[0] * innovation)
+        residual = np.eye(2) - gain[:, None] @ self.C
+        self.P = residual @ self.P @ residual.T + np.outer(gain, gain) * self.R[0, 0]
+        return innovation
 
     def innovation(self, y_meas: float, u: float, T_outdoor_C: float) -> float:
         """Pre-update residual — used by the disturbance observer."""
         A, B, d = self.plant.linearised_AB(T_outdoor_C, float(self.x_hat[1]))
         x_pred = A @ self.x_hat + B.flatten() * u + d
         return y_meas - float((self.C @ x_pred).item())
+
+    def _predict(
+        self, u: float, T_outdoor_C: float, elapsed_s: float
+    ) -> tuple[FloatArray, FloatArray]:
+        """Return the state transition ``A`` and the predicted state.
+
+        The state follows the plant's own sub-stepped dynamics, whose valve
+        drive shrinks as the radiator approaches the supply water, so no
+        interval between readings carries the estimate past it. ``A`` does
+        not depend on the operating point and propagates the covariance.
+        """
+        A, _, _ = self.plant.linearised_AB(
+            T_outdoor_C, float(self.x_hat[1]), dt_s=elapsed_s
+        )
+        return A, self.plant.propagate(self.x_hat, u, T_outdoor_C, elapsed_s)

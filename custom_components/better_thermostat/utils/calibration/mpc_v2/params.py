@@ -9,6 +9,7 @@ from ..mpc_v2_internals.governor import GovernorParams
 from ..mpc_v2_internals.kalman import KalmanParams
 from ..mpc_v2_internals.plant import PlantParams
 from ..mpc_v2_internals.qp_optimiser import QpParams
+from .flow_prior import ValveFlowPrior
 
 
 @dataclass
@@ -27,6 +28,10 @@ class MpcV2Params:
     # Observer / plant-simulation cadence (Kalman, Smith). QP cadence lives
     # on ``qp.step_s``.
     plant_step_s: float = 30.0
+    learn_valve_response: bool = False
+    flow_prior: ValveFlowPrior | None = None
+    response_heat_max: float | None = None
+    response_loss: float | None = None
 
 
 # Static plant priors as an alternative to the AUTO path (which derives

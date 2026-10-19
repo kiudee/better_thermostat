@@ -1,5 +1,7 @@
 # Better Thermostat
 
+This fork adds [experimental MPC V2 valve-response learning and diagnostic plots](docs/valve-response/README.md). The feature is opt-in.
+
 [![Active installations](https://badge.t-haber.de/badge/better_thermostat?kill_cache=1)](https://github.com/KartoffelToby/better_thermostat/)
 [![GitHub issues](https://img.shields.io/github/issues/KartoffelToby/better_thermostat?style=for-the-badge)](https://github.com/KartoffelToby/better_thermostat/issues)
 [![Version](https://img.shields.io/github/v/release/KartoffelToby/better_thermostat?style=for-the-badge&label=Version&color=009688)](https://github.com/KartoffelToby/better_thermostat/releases)
@@ -12,6 +14,7 @@
 
 - Minimum required Home Assistant version: `2026.9.0`
   (_continuously tested against Home Assistant_ [![Tested Home Assistant version](https://img.shields.io/badge/dynamic/regex?url=https%3A%2F%2Fraw.githubusercontent.com%2FKartoffelToby%2Fbetter_thermostat%2Fdevelop%2Fpyproject.toml&search=homeassistant%3E%3D%28%5B0-9.%5D%2B%29&replace=%241&label=&color=009688)](pyproject.toml))
+- Minimum required Python version: `3.14.2` (inherited from Home Assistant; the integration uses syntax that older interpreters reject)
 
 ### Companion UI
 

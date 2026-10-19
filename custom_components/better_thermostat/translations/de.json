@@ -40,12 +40,17 @@
           "valve_maintenance": "Soll BT die Wartung des Thermostats übernehmen?",
           "calibration": "Kalibrierungstyp",
           "calibration_mode": "Kalibrierungsmodus",
-          "no_off_system_mode": "Wenn das TRV keinen Aus Modus nutzen kann, kann diese Option aktiviert werden, um das TRV stattdessen auf 5°C zu setzen."
+          "no_off_system_mode": "Wenn das TRV keinen Aus Modus nutzen kann, kann diese Option aktiviert werden, um das TRV stattdessen auf 5°C zu setzen.",
+          "mpc_v2_learn_response": "MPC V2: Heizwirkung des Ventils lernen (experimentell)",
+          "mpc_v2_flow_prior": "MPC V2: angenommene Durchflusskurve 20–40% verwenden",
+          "mpc_v2_plant_preset": "MPC v2 Raumgröße"
         },
         "data_description": {
           "protect_overheating": "Manche TRVs schließen auch nach Erreichen der Temperatur das Ventil nicht vollständig. Dies kann zu Überhitzungen führen. Ebenso, falls der Radiator viel Restwärme abstrahlt. Diese Option kann dies verhindern.",
           "calibration_mode": "Wie die Kalibrierung berechnet wird\n***Normal***: In diesem Modus wird die interne TRV-Temperatur an die des externen Sensors angeglichen.\n\n***Aggressive***: In diesem Modus wird die interne TRV-Temperatur an die des externen Sensors angeglichen - allerdings mit größeren Werten. Dies ist hilfreich, wenn ein Raum schnell aufgeheizt werden soll oder das TRV träge ist.\n\n***AI Time Based***: In diesem Modus wird ein eigener Algorithmus genutzt, der anhand des externen Temperatursensors die Kalibrierung berechnet. Dieser Modus versucht den TRV internen Algorithmus zu optimieren.\n\n***MPC Predictive (Beta)***: Nutzt den MPC-Prädiktivregler, um eine Ventilöffnung vorherzusagen und wandelt sie bei fehlender Ventilsteuerung in Temperatur- oder Offset-Anpassungen um.\n\n***PID Controller***: Verwendet einen PID-Regler, um die Ventilposition dynamisch basierend auf Temperaturfehler, proportionalem Anteil, integraler Akkumulation und derivativem Vorhersage anzupassen.\n\n***TPI Controller***: Verwendet einen Zeit-Proportional-Integral-Regler für stabile und präzise Temperatursteuerung über die Zeit.",
-          "calibration": "Wie die Kalibrierung auf das TRV angewendet werden soll.\n\n***Target Temperature Based***: Kalibriert das TRV über die Zieltemperatur.\n\n***Offset Based***: Kalibriert das TRV über eine Offset Funktion im TRV selbst. (Empfohlen)"
+          "calibration": "Wie die Kalibrierung auf das TRV angewendet werden soll.\n\n***Target Temperature Based***: Kalibriert das TRV über die Zieltemperatur.\n\n***Offset Based***: Kalibriert das TRV über eine Offset Funktion im TRV selbst. (Empfohlen)",
+          "mpc_v2_learn_response": "Nur direkte Ventilsteuerung mit einem Heizkörper. Lernt aus stabilen, frischen Messungen; keine erzwungenen Heizversuche. Die Obergrenze bleibt erhalten.",
+          "mpc_v2_flow_prior": "Experimentell, nur ein Heizkörper mit direkter Ventilsteuerung. Annahme: Beginn 19,5%, 98% Durchfluss bei 40%. Kein Wärmebedarf schließt auf 0%. Gelernte Heizwirkung ersetzt diese Annahme nicht automatisch."
         }
       },
       "confirm": {
@@ -64,7 +69,9 @@
     },
     "abort": {
       "single_instance_allowed": "Es ist nur ein einzelnes BT je realem Thermostat erlaubt.",
-      "no_devices_found": "Es konnten keine Climate-Entitäten in Home Assistant gefunden werden. Stelle sicher, dass dein reales Thermostat in Home Assistant vorhanden ist."
+      "no_devices_found": "Es konnten keine Climate-Entitäten in Home Assistant gefunden werden. Stelle sicher, dass dein reales Thermostat in Home Assistant vorhanden ist.",
+      "already_configured": "Ein Better Thermostat mit diesem Namen steuert diese Thermostate bereits.",
+      "trv_in_use": "{trv} wird bereits vom Better Thermostat {entry} gesteuert. Ein Thermostat kann nur zu einem Better Thermostat gehören; entferne es zuerst dort."
     }
   },
   "options": {
@@ -94,7 +101,8 @@
           "calibration": "Die Art der Kalibrierung",
           "heat_auto_swapped": "Wenn das Auto Wärme für Ihr TRV bedeutet und Sie es austauschen möchten.",
           "child_lock": "Ignorieren Sie alle Eingaben am TRV wie eine Kindersicherung.",
-          "homematicip": "Wenn Sie HomematicIP verwenden, sollten Sie dies aktivieren, um die Anfragen zu verlangsamen und den Duty Cycle zu verhindern."
+          "homematicip": "Wenn Sie HomematicIP verwenden, sollten Sie dies aktivieren, um die Anfragen zu verlangsamen und den Duty Cycle zu verhindern.",
+          "cooler": "Klimagerät AC (optional)"
         },
         "data_description": {
           "presets": "Wähle die Presets aus, die für dieses Thermostat verfügbar sein sollen."
@@ -110,12 +118,17 @@
           "valve_maintenance": "Soll BT die Wartung des Thermostats übernehmen?",
           "calibration": "Kalibrierungstyp",
           "calibration_mode": "Kalibrierungsmodus",
-          "no_off_system_mode": "Wenn das TRV keinen Aus Modus nutzen kann, kann diese Option aktiviert werden, um das TRV stattdessen auf 5°C zu setzen."
+          "no_off_system_mode": "Wenn das TRV keinen Aus Modus nutzen kann, kann diese Option aktiviert werden, um das TRV stattdessen auf 5°C zu setzen.",
+          "mpc_v2_learn_response": "MPC V2: Heizwirkung des Ventils lernen (experimentell)",
+          "mpc_v2_flow_prior": "MPC V2: angenommene Durchflusskurve 20–40% verwenden",
+          "mpc_v2_plant_preset": "MPC v2 Raumgröße"
         },
         "data_description": {
           "protect_overheating": "Manche TRVs schließen auch nach Erreichen der Temperatur das Ventil nicht vollständig. Dies kann zu Überhitzungen führen. Ebenso falls der Radiator viel Restwärme abstrahlt. Diese Option kann dies verhindern.",
           "calibration_mode": "Wie die Kalibrierung berechnet wird\n***Normal***: In diesem Modus wird die interne TRV-Temperatur an die des externen Sensors angeglichen.\n\n***Aggressive***: In diesem Modus wird die interne TRV-Temperatur an die des externen Sensors angeglichen - allerdings mit größeren Werten. Dies ist hilfreich, wenn ein Raum schnell aufgeheizt werden soll oder das TRV träge ist.\n\n***AI Time Based***: In diesem Modus wird ein eigener Algorithmus genutzt, der anhand des externen Temperatursensors die Kalibrierung berechnet. Dieser Modus versucht den TRV internen Algorithmus zu optimieren.\n\n***MPC Predictive (Beta)***: Nutzt den MPC-Prädiktivregler, um eine Ventilöffnung vorherzusagen und wandelt sie bei fehlender Ventilsteuerung in Temperatur- oder Offset-Anpassungen um.\n\n***PID Controller***: Verwendet einen PID-Regler, um die Ventilposition dynamisch basierend auf Temperaturfehler, proportionalem Anteil, integraler Akkumulation und derivativem Vorhersage anzupassen.\n\n***TPI Controller***: Verwendet einen Zeit-Proportional-Integral-Regler für stabile und präzise Temperatursteuerung über die Zeit.",
-          "calibration": "Wie die Kalibrierung auf das TRV angewendet werden soll.\n\n***Target Temperature Based***: Kalibriert das TRV über die Zieltemperatur.\n\n***Offset Based***: Kalibriert das TRV über eine Offset Funktion im TRV selbst. (Empfohlen)"
+          "calibration": "Wie die Kalibrierung auf das TRV angewendet werden soll.\n\n***Target Temperature Based***: Kalibriert das TRV über die Zieltemperatur.\n\n***Offset Based***: Kalibriert das TRV über eine Offset Funktion im TRV selbst. (Empfohlen)",
+          "mpc_v2_learn_response": "Nur direkte Ventilsteuerung mit einem Heizkörper. Lernt aus stabilen, frischen Messungen; keine erzwungenen Heizversuche. Die Obergrenze bleibt erhalten.",
+          "mpc_v2_flow_prior": "Experimentell, nur ein Heizkörper mit direkter Ventilsteuerung. Annahme: Beginn 19,5%, 98% Durchfluss bei 40%. Kein Wärmebedarf schließt auf 0%. Gelernte Heizwirkung ersetzt diese Annahme nicht automatisch."
         }
       }
     },
@@ -126,7 +139,9 @@
       "no_off_mode": "Dein Gerät ist ein Sonderfall, es hat keinen OFF Modus :(\nBetter Thermostat wird stattdessen das TRV auf den Minimalwert setzen.",
       "target_temp_min_above_max": "Die Ziel-Mindesttemperatur darf die Ziel-Maximaltemperatur nicht überschreiten.",
       "no_outside_temp": "Es kann keine Außentemperatur geladen werden.",
-      "no_data": "Es wurden keine Daten empfangen. Bitte versuchen Sie es erneut."
+      "no_data": "Es wurden keine Daten empfangen. Bitte versuchen Sie es erneut.",
+      "no_sensor": "Bitte einen Raumtemperatursensor auswählen.",
+      "trv_in_use": "{trv} wird bereits vom Better Thermostat {entry} gesteuert. Ein Thermostat kann nur zu einem Better Thermostat gehören."
     }
   },
   "issues": {
@@ -156,6 +171,10 @@
     "invalid_external_temperature": {
       "title": "BT: {name} - ungültige Außentemperatur",
       "description": "Der externe Temperatursensor für Better Thermostat {name} hat einen unplausiblen Wert gemeldet: {value}.\n\nDer Messwert lag außerhalb des plausiblen Bereichs und wurde ignoriert. Bitte überprüfen Sie Ihre Temperatursensor-Konfiguration."
+    },
+    "shared_trv": {
+      "title": "BT: {trv} wird von mehr als einem Better Thermostat gesteuert",
+      "description": "Das Thermostat {trv} gehört zu diesen Better Thermostats: {entries}. Sie schreiben konkurrierende Solltemperaturen und Modi darauf. Entferne es in den Einstellungen aus allen bis auf eines; danach verschwindet dieser Hinweis von selbst."
     }
   },
   "services": {
@@ -447,7 +466,8 @@
           "degraded_mode_entered": "ist in den Notbetrieb gewechselt, da einige Sensoren nicht erreichbar sind",
           "degraded_mode_resolved": "hat den Notbetrieb beendet, da alle Sensoren wieder erreichbar sind",
           "door_open": "abgeschaltet, weil eine Tür geöffnet wurde",
-          "door_close": "heizt wieder, weil eine Tür geschlossen wurde"
+          "door_close": "heizt wieder, weil eine Tür geschlossen wurde",
+          "weather_forecast_missing": "Heizen fortgesetzt, da die Wettervorhersage nicht verfügbar ist"
         }
       },
       "external_temp_ema": {

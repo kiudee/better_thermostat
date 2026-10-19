@@ -65,6 +65,8 @@ CONF_CHILD_LOCK: Final = "child_lock"
 CONF_PROTECT_OVERHEATING: Final = "protect_overheating"
 CONF_CALIBRATION_MODE: Final = "calibration_mode"
 CONF_MPC_V2_PLANT_PRESET: Final = "mpc_v2_plant_preset"
+CONF_MPC_V2_LEARN_RESPONSE: Final = "mpc_v2_learn_response"
+CONF_MPC_V2_FLOW_PRIOR: Final = "mpc_v2_flow_prior"
 CONF_HEAT_AUTO_SWAPPED: Final = "heat_auto_swapped"
 CONF_MODEL: Final = "model"
 CONF_HOMEMATICIP: Final = "homematicip"
@@ -178,6 +180,10 @@ DEFAULT_CALIBRATION_MODE: Final = CalibrationMode.HEATING_POWER_CALIBRATION
 # is in OFF / ON mode) and rejected at the BT input boundary.
 MIN_REASONABLE_TEMPERATURE = -50.0
 MAX_REASONABLE_TEMPERATURE = 60.0
+
+# How long the room sensor has to stay unavailable or unknown before the
+# TRV-internal temperature stands in for the room temperature (seconds).
+ROOM_SENSOR_FALLBACK_DELAY_S: Final = 120
 
 # Default temperature bounds / setpoint for the BT climate entity (Celsius),
 # used until the underlying TRV reports its own min/max/target.

@@ -40,12 +40,17 @@
           "valve_maintenance": "Hvis din termostat ikke har nogen egen vedligeholdelsestilstand, kan du bruge denne",
           "calibration": "Den slags kalibrering du vil bruge",
           "calibration_mode": "Kalibreringstilstand",
-          "no_off_system_mode": "Hvis din TRV ikke kan håndtere den slukkede tilstand, kan du aktivere denne for at bruge måltemperatur 5°C i stedet"
+          "no_off_system_mode": "Hvis din TRV ikke kan håndtere den slukkede tilstand, kan du aktivere denne for at bruge måltemperatur 5°C i stedet",
+          "mpc_v2_learn_response": "MPC V2: learn valve heating response (experimental)",
+          "mpc_v2_flow_prior": "MPC V2: brug antaget flowkurve 20–40 %",
+          "mpc_v2_plant_preset": "MPC v2 rumstørrelse"
         },
         "data_description": {
           "protect_overheating": "Nogle TRV'er lukker ikke ventilen helt, når temperaturen er nået. Eller radiatoren har meget hvilevarme. Dette kan forårsage overophedning. Denne mulighed kan forhindre dette.",
           "calibration_mode": "Hvordan kalibreringen skal beregnes\n***Normal***: I denne tilstand er TRV's interne temperaturføler fastgjort af den eksterne temperaturføler.\n***Aggressiv***: I denne tilstand er TRV's interne temperaturføler fikseret af den eksterne temperaturføler, men indstillet meget lavere/højere for at få et hurtigere løft.\n***AI-tidsbaseret***: I denne tilstand er TRV's interne temperatursensor fastsat af den eksterne temperatursensor, men værdien beregnes af en brugerdefineret algoritme for at forbedre TRV's interne algoritme.",
-          "calibration": "Hvordan kalibreringen skal anvendes på TRV (Target temp or offset)\n***Måltemperaturbaseret***: Anvend kalibreringen til måltemperaturen.\n***Offset-baseret***: Anvend kalibreringen til offset."
+          "calibration": "Hvordan kalibreringen skal anvendes på TRV (Target temp or offset)\n***Måltemperaturbaseret***: Anvend kalibreringen til måltemperaturen.\n***Offset-baseret***: Anvend kalibreringen til offset.",
+          "mpc_v2_learn_response": "Single radiator with direct valve control only. Learns from settled, fresh reports without forced heating experiments. Your maximum opening remains enforced. Unobserved valve ranges remain uncertain.",
+          "mpc_v2_flow_prior": "Eksperimentelt, kun én radiator med direkte ventilstyring. Antager flowstart ved 19,5 % og 98 % flow ved 40 % åbning. Intet varmebehov lukker til 0 %. Indlært varmevirkning erstatter ikke automatisk denne antagelse."
         }
       },
       "confirm": {
@@ -64,7 +69,9 @@
     },
     "abort": {
       "single_instance_allowed": "Kun en enkelt termostat for hver virkelige er tilladt.",
-      "no_devices_found": "Der blev ikke fundet nogen termostatenhed, sørg for at have en klimaenhed i home assistant"
+      "no_devices_found": "Der blev ikke fundet nogen termostatenhed, sørg for at have en klimaenhed i home assistant",
+      "already_configured": "En Better Thermostat med dette navn styrer allerede disse termostater.",
+      "trv_in_use": "{trv} styres allerede af Better Thermostat {entry}. En termostat kan kun høre til én Better Thermostat; fjern den der først."
     }
   },
   "options": {
@@ -94,7 +101,8 @@
           "calibration": "Den slags kalibrering",
           "heat_auto_swapped": "Hvis auto betyder varme til din TRV, og du ønsker at bytte den",
           "child_lock": "Ignorer alle input på TRV som en børnesikring",
-          "homematicip": "Hvis du bruger HomematicIP, bør du aktivere dette for at bremse anmodningerne for at forhindre arbejdscyklus"
+          "homematicip": "Hvis du bruger HomematicIP, bør du aktivere dette for at bremse anmodningerne for at forhindre arbejdscyklus",
+          "cooler": "Køleenhed (valgfri)"
         },
         "data_description": {
           "presets": "Vælg de forudindstillinger, der skal være tilgængelige for denne termostat."
@@ -110,12 +118,17 @@
           "valve_maintenance": "Hvis din termostat ikke har nogen egen vedligeholdelsestilstand, kan du bruge denne",
           "calibration": "Den slags kalibrering du vil bruge",
           "calibration_mode": "Kalibreringstilstand",
-          "no_off_system_mode": "Hvis din TRV ikke kan håndtere den slukkede tilstand, kan du aktivere denne for at bruge måltemperatur 5°C i stedet"
+          "no_off_system_mode": "Hvis din TRV ikke kan håndtere den slukkede tilstand, kan du aktivere denne for at bruge måltemperatur 5°C i stedet",
+          "mpc_v2_learn_response": "MPC V2: learn valve heating response (experimental)",
+          "mpc_v2_flow_prior": "MPC V2: brug antaget flowkurve 20–40 %",
+          "mpc_v2_plant_preset": "MPC v2 rumstørrelse"
         },
         "data_description": {
           "protect_overheating": "Nogle TRV'er lukker ikke ventilen helt, når temperaturen er nået. Eller radiatoren har meget hvilevarme. Dette kan forårsage overophedning. Denne mulighed kan forhindre dette.",
           "calibration_mode": "Hvordan kalibreringen skal beregnes\n***Normal***: I denne tilstand er TRV's interne temperaturføler fikseret af den eksterne temperaturføler.\n***Aggressiv***: I denne tilstand er TRV's interne temperaturføler fikseret af den eksterne temperaturføler, men indstillet meget lavere/højere for at få et hurtigere løft.\n***AI-tidsbaseret***: I denne tilstand er TRV's interne temperatursensor fastsat af den eksterne temperatursensor, men værdien beregnes af en brugerdefineret algoritme for at forbedre TRV's interne algoritme.",
-          "calibration": "Hvordan kalibreringen skal anvendes på TRV (Target temp or offset)\n***Måltemperaturbaseret***: Anvend kalibreringen til måltemperaturen.\n***Offset-baseret***: Anvend kalibreringen til offset."
+          "calibration": "Hvordan kalibreringen skal anvendes på TRV (Target temp or offset)\n***Måltemperaturbaseret***: Anvend kalibreringen til måltemperaturen.\n***Offset-baseret***: Anvend kalibreringen til offset.",
+          "mpc_v2_learn_response": "Single radiator with direct valve control only. Learns from settled, fresh reports without forced heating experiments. Your maximum opening remains enforced. Unobserved valve ranges remain uncertain.",
+          "mpc_v2_flow_prior": "Eksperimentelt, kun én radiator med direkte ventilstyring. Antager flowstart ved 19,5 % og 98 % flow ved 40 % åbning. Intet varmebehov lukker til 0 %. Indlært varmevirkning erstatter ikke automatisk denne antagelse."
         }
       }
     },
@@ -126,7 +139,9 @@
       "no_off_mode": "Din enhed er meget speciel og har ingen slukket tilstand :(\nDet virker alligevel, men du skal oprette en automatisering, der passer til dine specialer baseret på enhedsbegivenhederne",
       "target_temp_min_above_max": "Mål minimumstemperaturen må ikke overstige mål maksimumstemperaturen.",
       "no_outside_temp": "Du har ingen udetemperaturføler. Better Thermostat vil bruge vejret i stedet.",
-      "no_data": "Ingen data blev modtaget. Prøv venligst igen."
+      "no_data": "Ingen data blev modtaget. Prøv venligst igen.",
+      "no_sensor": "Vælg venligst en rumtemperatursensor.",
+      "trv_in_use": "{trv} styres allerede af Better Thermostat {entry}. En termostat kan kun høre til én Better Thermostat."
     }
   },
   "issues": {
@@ -156,6 +171,10 @@
     "invalid_external_temperature": {
       "title": "BT: {name} - ugyldig ekstern temperatur",
       "description": "Den eksterne temperaturføler for Better Thermostat {name} rapporterede en usandsynlig værdi: {value}.\n\nAflæsningen lå uden for det sandsynlige interval og blev ignoreret. Kontroller din temperaturfølerkonfiguration."
+    },
+    "shared_trv": {
+      "title": "BT: {trv} styres af mere end én Better Thermostat",
+      "description": "Termostaten {trv} hører til disse Better Thermostats: {entries}. De skriver konkurrerende måltemperaturer og tilstande til den. Fjern den fra alle undtagen én i deres indstillinger; denne meddelelse forsvinder derefter af sig selv."
     }
   },
   "services": {
@@ -447,7 +466,8 @@
           "degraded_mode_entered": "gik i degraderet tilstand fordi nogle sensorer er utilgængelige",
           "degraded_mode_resolved": "forlod degraderet tilstand fordi alle sensorer er tilgængelige",
           "door_open": "turned off because a door was opened",
-          "door_close": "resumed heating because a door was closed"
+          "door_close": "resumed heating because a door was closed",
+          "weather_forecast_missing": "genoptog opvarmning fordi vejrudsigten ikke er tilgængelig"
         }
       },
       "external_temp_ema": {

@@ -3,12 +3,13 @@
 from __future__ import annotations
 
 from collections.abc import Mapping
-from dataclasses import asdict, dataclass
+from dataclasses import asdict, dataclass, field
 import logging
 from typing import Any
 
 from .controller import ControllerSnapshot, MpcV2Controller
 from .params import MpcV2Params
+from .response import ValveResponseLearner
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -29,6 +30,9 @@ class MpcV2State:
     # Latched once the controller falls back to a hardcoded outdoor temp;
     # used to throttle the WARN to one line per controller instance.
     outdoor_fallback_logged: bool = False
+    response: ValveResponseLearner = field(default_factory=ValveResponseLearner)
+    response_shared: bool = False
+    actuator_id: str | None = None
 
 
 def _plant_signature_of(params: MpcV2Params) -> tuple[float, ...]:
@@ -38,6 +42,8 @@ def _plant_signature_of(params: MpcV2Params) -> tuple[float, ...]:
         round(p.tau_rad_min, 3),
         round(p.gain_heater, 4),
         round(p.coupling_rad_room, 4),
+        1.0 if params.response_heat_max is not None else 0.0,
+        *(params.flow_prior.signature if params.flow_prior else (0.0, 0.0, 0.0)),
     )
 
 
@@ -60,6 +66,8 @@ def plant_signature_differs(old: tuple[float, ...], new: tuple[float, ...]) -> b
     """
     if len(old) != len(new):
         return True
+    if old[5:] != new[5:]:
+        return True
     return any(
         abs(n - o) > _SIGNATURE_REL_TOL * max(abs(o), 1e-9) for o, n in zip(old, new)
     )
@@ -79,6 +87,7 @@ def export_mpc_v2_state(state: MpcV2State) -> dict[str, Any] | None:
         "created_ts": state.created_ts,
         "outdoor_fallback_logged": state.outdoor_fallback_logged,
         "snapshot": asdict(state.controller.export_snapshot()),
+        "response": state.response.export(),
     }
 
 
@@ -93,6 +102,9 @@ def import_mpc_v2_state(
     after with the correct params.
     """
     state = MpcV2State()
+    from time import time
+
+    state.response.restore(payload.get("response"), time())
     for attr in ("last_percent", "last_compute_ts", "created_ts"):
         value = payload.get(attr)
         if value is not None:
